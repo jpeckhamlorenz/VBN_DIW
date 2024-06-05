@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+from Xeryon import *
+controller  = Xeryon("COM5", 115200)           # Setup serial communication
+axisX       = controller.addAxis(Stage.XLS_312, "X") # Add all axis and specify the correct stage.
+
 from time import sleep
 import pigpio
 import rospy
@@ -29,13 +33,11 @@ pi.set_mode(stepB, pigpio.OUTPUT)
 pi.write(enA,0)
 pi.write(enB,0)
 
-def VBN_command_callback(msg):
+def flowrate_command_callback(msg):
     
-    data = msg.data
-    Q = data[0]
-    W = data[1]
+    Q = msg.data
     
-    log_message = "Flow Command: %s  and  Nozzle Command: %s" % (Q, W)
+    log_message = "Flowrate Command: %s" %Q
     rospy.loginfo(log_message)  # writes output to terminal
 
     pi.set_PWM_dutycycle(stepA, 128)
@@ -50,12 +52,29 @@ def VBN_command_callback(msg):
     else: 
         pi.write(dirA, 1)
         pi.write(dirB, 0)
-
+       
+       
+def beadwidth_command_callback(msg):
+    
+    W = msg.data
+    
+    log_message = "Nozzle Width Command: %s" %W
+    rospy.loginfo(log_message)  # writes output to terminal
+    
+    #TODO: something something make VBN actuator go brr (wrapper time?)
+    
+    
+def listener():
+    
+    rospy.init_node('VBN')
+    rospy.Subscriber('flowrate_command', Float32, flowrate_command_callback)
+    rospy.Subscriber('beadwidth_command', Float32, beadwidth_command_callback)
+    rospy.spin()
+    
+    
 if __name__ == '__main__':
     try:
-        rospy.init_node('VBN')
-        rospy.Subscriber('VBN_command', MSG_TYPE, VBN_command_callback)  # TODO
-        rospy.spin()
+        listener()
     except KeyboardInterrupt:
         print("user quit program")
     finally:
