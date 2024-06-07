@@ -8,9 +8,9 @@
 # pyserial library is required. "pip install pyserial" (! This is different from "pip install serial")
 # The code below initializes the system.
 
-from Xeryon import *
+from Xeryon import Xeryon, Stage, Units
 controller  = Xeryon("COM5", 115200)           # Setup serial communication
-axisX       = controller.addAxis(Stage.XLS_312, "X") # Add all axis and specify the correct stage.
+axisX       = controller.addAxis(Stage.XLA_312, "X") # Add all axis and specify the correct stage.
 
 # You can find the axis name in the config.txt file that's provided with the stages.
 
