@@ -6,7 +6,7 @@ import math
 import serial.tools.list_ports
 import re
 
-SETTINGS_FILENAME = "settings_default.txt"
+SETTINGS_FILENAME = "settings_user.txt"
 LIBRARY_VERSION = "v1.82"
 
 # DEBUG MODE
@@ -361,7 +361,7 @@ class Axis:
             outputConsole("Index of axis " + str(self) + " found.")
             return True
 
-    def move(self, value):
+    def move(self, value): #  moves in a direction to a position (I think), open-loop at max speed  -JamesLorenz
         value = int(value)
         direction = 0
         if value > 0:

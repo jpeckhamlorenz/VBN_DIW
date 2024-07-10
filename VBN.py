@@ -11,8 +11,8 @@ from std_msgs.msg import Float32
 DISABLE_WAITING = True
 
 controller  = Xeryon("COM5", 115200)           # Setup serial communication
-left_stage       = controller.addAxis(Stage.XLA_78, "Z") # Add all axis and specify the correct stage.
-right_stage = controller.addAxis(Stage.XLA_78, "Z")
+left_stage       = controller.addAxis(Stage.XLA_1250, "Z") # Add all axis and specify the correct stage.
+right_stage = controller.addAxis(Stage.XLA_1250, "Z")
 
 controller.start()
 
