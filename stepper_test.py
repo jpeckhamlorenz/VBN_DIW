@@ -19,21 +19,23 @@ pi.set_mode(enB, pigpio.OUTPUT)
 pi.set_mode(dirB, pigpio.OUTPUT)
 pi.set_mode(stepB, pigpio.OUTPUT)
 
+powah = 200
+
 pi.set_PWM_dutycycle(stepA, 128)
-pi.set_PWM_frequency(stepA, 2000)
+pi.set_PWM_frequency(stepA, powah)
 
 pi.set_PWM_dutycycle(stepB, 128)
-pi.set_PWM_frequency(stepB, 2000)
+pi.set_PWM_frequency(stepB, powah)
 
 pi.write(enA,0)
 pi.write(enB,0)
 
 try:
     while True:
+#         pi.write(dirA, 1)
+#         pi.write(dirB, 1)
+#         sleep(2)
         pi.write(dirA, 0)
-        pi.write(dirB, 1)
-        sleep(2)
-        pi.write(dirA, 1)
         pi.write(dirB, 0)
         sleep(2)
 except KeyboardInterrupt:
