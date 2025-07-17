@@ -7,13 +7,13 @@
 from time import sleep
 import pigpio
 import rospy
-from std_msgs.msg import Float32
+from std_msgs.msg import Float32, Float32MultiArray
 import os
 print("Ayo")
 print(os.environ.get("ROS_MASTER_URI"))
 print(os.environ.get("ROS_IP"))
 steps_per_uL = 409
-speed = 100 #mm/s
+start_speed = 50 #mm/s
 import threading
 from Xeryon import *
 import serial.tools.list_ports 
@@ -41,24 +41,25 @@ controller2.start()
 def func01():
     stage1.findIndex(forceWaiting = True)
     sleep(5)
-    stage1.setSpeed(speed)
+    stage1.setSpeed(start_speed)
     stage1.setUnits(Units.mu)
     stage1.setDPOS(-15000)
     sleep(2)
-    
 
 def func02():
     stage2.findIndex(forceWaiting = True)
     sleep(5)
-    stage2.setSpeed(speed)
+    stage2.setSpeed(start_speed)
     stage2.setUnits(Units.mu)
     stage2.setDPOS(-15000)
     sleep(2)
     
-def func1(position):    
+def func1(position, speed):
+    stage1.setSpeed(speed)  # mu/s
     stage1.setDPOS(position)
     
-def func2(position):
+def func2(position, speed):
+    stage2.setSpeed(speed)  # mu/s
     stage2.setDPOS(position)
     
 thread01 = threading.Thread(target = func01)
@@ -97,17 +98,12 @@ pi.set_mode(enB, pigpio.OUTPUT)
 pi.set_mode(dirB, pigpio.OUTPUT)
 pi.set_mode(stepB, pigpio.OUTPUT)
 
-
 pi.write(enA,0)
 pi.write(enB,0)
 
-import time
-
-start = time.time()
-
 def flowrate_command_callback(msg):
     
-    assert 0.0 <= msg.data <= 15.0, "Flowrate Command is out of bounds"
+    assert 0.0 <= abs(msg.data) <= 15.0, "Flowrate Command is out of bounds"
     Q = msg.data
     
     log_message = "Flowrate Command: %s" %Q
@@ -128,15 +124,21 @@ def flowrate_command_callback(msg):
        
        
 def beadwidth_command_callback(msg):
-    global start
-    t = time.time() - start
-    start = time.time()
-    time_message = "Elasped time since last beadwidth command: %s" %t
-    rospy.loginfo(time_message)
-    
-    W_bead = float(msg.data)
+
+    W_data = float(msg.data)
+    W_bead = W_data[0]
+    W_speed = W_data[1]
+
+    bead_message = "Beadwidth Command: %s" % W_bead
+    rospy.loginfo(bead_message)  # writes output to terminal
+
+    speed_message = "Beadspeed Command: %s" % W_speed
+    rospy.loginfo(speed_message)  # writes output to terminal
+
     calibration = [6596, -10954]
     W = calibration[0] * W_bead + calibration[1]
+
+    W_vel = W_speed * 1000  # convert mm/s to um/s
     
     if not -17000 < W < 17000:
         rospy.logerror("\nError: not a valid nozzle position", end = '\n')
@@ -144,8 +146,9 @@ def beadwidth_command_callback(msg):
         log_message = "Nozzle Width Command: %s" %W
         
         rospy.loginfo(log_message)  # writes output to terminal
-        thread1 = threading.Thread(target = func1, args = (W,))
-        thread2 = threading.Thread(target = func2, args = (W,))
+        thread1 = threading.Thread(target = func1, args = (W,W_vel))
+        thread2 = threading.Thread(target = func2, args = (W,W_vel))
+
 
         thread1.start()
         thread2.start()
@@ -154,12 +157,11 @@ def beadwidth_command_callback(msg):
         thread2.join()
     
 def listener():
-    
-    
+
     rospy.init_node('VBN')
     rospy.Subscriber('flowrate_command', Float32, flowrate_command_callback, queue_size=1)
-    rospy.Subscriber('beadwidth_command', Float32, beadwidth_command_callback, queue_size=1)
-    print("We are gooning. (Subscribed to flowrate/beadwidth)")
+    rospy.Subscriber('beadwidth_command', Float32MultiArray, beadwidth_command_callback, queue_size=1)
+    print("We are gooning. (Subscribed to flowrate/beadwidth/beadspeed)")
     rospy.spin()
     
     

@@ -18,7 +18,7 @@ DEBUG_MODE = False
 # OUTPUT_TO_CONSOLE
 # If set to True, a lot of data is outputted to the console.
 # e.g.: If you set DPOS=..., the new DPOS and EPOS are printed to the console.
-OUTPUT_TO_CONSOLE = True  # False: this blocks all output to the console.
+OUTPUT_TO_CONSOLE = False  # False: this blocks all output to the console.
 
 # DISABLE WAITING
 # If set to True, the library won't wait until the position is reached.
