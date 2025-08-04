@@ -1,6 +1,3 @@
-# testing the stepper
-
-
 from time import sleep
 import pigpio
 

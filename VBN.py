@@ -129,9 +129,11 @@ def flowrate_command_callback(msg):
        
 def beadwidth_command_callback(msg):
 
-    W_data = float(msg.data)
-    W_bead = W_data[0]
-    W_speed = W_data[1]
+    W_data = msg.data
+    W_bead = float(W_data[0])
+    W_speed = float(W_data[1])
+    
+    rospy.loginfo(W_data)
 
     bead_message = "Beadwidth Command: %s" % W_bead
     rospy.loginfo(bead_message)  # writes output to terminal
@@ -141,8 +143,12 @@ def beadwidth_command_callback(msg):
 
     calibration = [6596, -10954]
     W = calibration[0] * W_bead + calibration[1]
-
-    W_vel = W_speed * 1000  # convert mm/s to um/s
+    
+    if W_speed*calibration[0] > 100*1000:
+        W_vel = 100*calibration[0]
+    else:
+        W_vel = W_speed * calibration[0]
+        
     
     if not -17000 < W < 17000:
         rospy.logerror("\nError: not a valid nozzle position", end = '\n')
