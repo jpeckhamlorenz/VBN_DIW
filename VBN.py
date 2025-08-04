@@ -44,6 +44,8 @@ def func01():
     stage1.setSpeed(start_speed)
     stage1.setUnits(Units.mu)
     stage1.setDPOS(-15000)
+    stage1.sendCommand("POLI=1")
+    stage1.sendCommand("DLAY=1")
     sleep(2)
 
 def func02():
@@ -52,6 +54,8 @@ def func02():
     stage2.setSpeed(start_speed)
     stage2.setUnits(Units.mu)
     stage2.setDPOS(-15000)
+    stage2.sendCommand("POLI=1")
+    stage2.sendCommand("DLAY=1")
     sleep(2)
     
 def func1(position, speed):
