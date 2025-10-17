@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 
-# from Xeryon import *
-# controller  = Xeryon("COM5", 115200)           # Setup serial communication
-# axisX       = controller.addAxis(Stage.XLS_312, "X") # Add all axis and specify the correct stage.
 
 from time import sleep
 import pigpio
