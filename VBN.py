@@ -83,11 +83,11 @@ print("\nHoming complete. You may now mount the aperture.", end = '\n')
 
 enA = 27
 dirA = 17
-stepA = 18
+stepA = 12
 
-enB = 13
-dirB = 16  
-stepB = 19
+enB = 6
+dirB = 16
+stepB = 13
 
 pi = pigpio.pi()
 
