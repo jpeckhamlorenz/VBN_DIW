@@ -61,6 +61,7 @@ class KeyenceScan:
         rospy.loginfo("Scanner reset and ready for next cycle")
 
     def _scan_callback(self, msg: Float32):
+        print("Scan Cummand:", msg.data)
         with self.lock:
             self.desired = bool(msg.data)
             self.last_msg = time.time()
@@ -103,8 +104,7 @@ class KeyenceScan:
         rospy.loginfo("Auto-reset %s", "enabled" if enabled else "disabled")
 
     def listener(self):
-        rospy.init_node('scanner')
-        rospy.Subscriber('scan_command', Float32, self._scan_callback)
+        rospy.Subscriber('/scan_command', Float32, self._scan_callback)
         rospy.loginfo("scanner node up. Waiting for /scan_command (Float32) msgs...")
         rospy.loginfo("Auto-reset enabled with %.1f second delay", self.AUTO_RESET_DELAY)
         rospy.spin()
@@ -118,5 +118,6 @@ class KeyenceScan:
 # %%
 
 if __name__ == "__main__":
+    rospy.init_node('scanner')
     ScanNode = KeyenceScan()
     ScanNode.listener()
