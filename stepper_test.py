@@ -3,11 +3,13 @@ import pigpio
 
 enA = 27
 dirA = 17
-stepA = 18
+stepA = 12
 
-enB = 13
-dirB = 16  
-stepB = 19
+enB = 6
+dirB = 16
+stepB = 13
+
+
 
 pi = pigpio.pi()
 
@@ -19,7 +21,7 @@ pi.set_mode(enB, pigpio.OUTPUT)
 pi.set_mode(dirB, pigpio.OUTPUT)
 pi.set_mode(stepB, pigpio.OUTPUT)
 
-powah = 200
+powah = 400
 
 pi.set_PWM_dutycycle(stepA, 128)
 pi.set_PWM_frequency(stepA, powah)
