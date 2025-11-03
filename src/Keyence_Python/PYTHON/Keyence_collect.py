@@ -91,66 +91,6 @@ class LJXAutoStopAcquisition:
 
         if opened_here:
             self._close_command_connection()
-
-        
-    def _example(self):
-        # Example of how to change some settings.
-        # In this example, the "sampling cycle" of Program No,0 is changed.
-        opened_here = self._open_command_connection()
-        depth = 1  # 0: Write, 1: Running, 2: Save
-
-        targetSetting = LJXAwrap.LJX8IF_TARGET_SETTING()
-        targetSetting.byType = 0x10         # Program No.0
-        targetSetting.byCategory = 0x00     # Trigger Category
-        targetSetting.byItem = 0x02         # Sampling Cycle
-        targetSetting.byTarget1 = 0x00      # reserved
-        targetSetting.byTarget2 = 0x00      # reserved
-        targetSetting.byTarget3 = 0x00      # reserved
-        targetSetting.byTarget4 = 0x00      # reserved
-
-        dataSize = 4
-
-        # Set the sampling cylce to '100Hz'
-        err = ctypes.c_uint()
-        pyArr = [3, 0, 0, 0]  # Sampling Cycle setting value. 3: 100Hz
-        settingData_set = (ctypes.c_ubyte * dataSize)(*pyArr)
-
-        res = LJXAwrap.LJX8IF_SetSetting(self.device_id, depth,
-                                         targetSetting,
-                                         settingData_set, dataSize, err)
-        print("LJXAwrap.LJX8IF_SetSetting:", hex(res),
-              "<Set value>=", settingData_set[0],
-              "<SettingError>=", hex(err.value))
-
-        # Get setting. This is not mandatory. Just to confirm.
-        settingData_get = (ctypes.c_ubyte * dataSize)()
-        res = LJXAwrap.LJX8IF_GetSetting(self.device_id, depth,
-                                         targetSetting,
-                                         settingData_get, dataSize)
-        print("LJXAwrap.LJX8IF_GetSetting:", hex(res),
-              "<Get value>=", settingData_get[0])
-
-        # Set the sampling cylce to '1kHz'
-        pyArr = [6, 0, 0, 0]  # Sampling Cycle setting value. 6: 1kHz
-        settingData_set = (ctypes.c_ubyte * dataSize)(*pyArr)
-        res = LJXAwrap.LJX8IF_SetSetting(self.device_id, depth,
-                                         targetSetting,
-                                         settingData_set, dataSize, err)
-        print("LJXAwrap.LJX8IF_SetSetting:", hex(res),
-              "<Set value>=", settingData_set[0],
-              "<SettingError>=", hex(err.value))
-
-        # Get setting. This is not mandatory. Just to confirm.
-        res = LJXAwrap.LJX8IF_GetSetting(self.device_id, depth,
-                                         targetSetting,
-                                         settingData_get, dataSize)
-        print("LJXAwrap.LJX8IF_GetSetting:", hex(res),
-              "<Get value>=", settingData_get[0])
-        print("----")
-
-        if opened_here:
-            self._close_command_connection()
-        
         
     def get_speed(self):
         opened_here = self._open_command_connection()
@@ -164,24 +104,21 @@ class LJXAutoStopAcquisition:
         targetSetting.byTarget2 = 0x00      # reserved
         targetSetting.byTarget3 = 0x00      # reserved
         targetSetting.byTarget4 = 0x00      # reserved
-        # Get setting. This is not mandatory. Just to confirm.
+
         settingData_get = (ctypes.c_ubyte * dataSize)()
         res = LJXAwrap.LJX8IF_GetSetting(self.device_id, depth,
                                          targetSetting,
                                          settingData_get, dataSize)
+
+        speeds = {0: 10, 1: 20, 2: 50, 3: 100, 4: 200, 5: 500, 6: 1000, 7: 2000}
+        speed = speeds[settingData_get[0]]     
+
         print("LJXAwrap.LJX8IF_GetSetting:", hex(res),
-              "<Get value>=", settingData_get[0])
+              "<Get value>=", settingData_get[0], "<Speed>=", speed, "Hz")
 
         if opened_here:
             self._close_command_connection()
-        
-        # Get setting. This is not mandatory. Just to confirm.
-        res = LJXAwrap.LJX8IF_GetSetting(self.device_id, depth,
-                                         targetSetting,
-                                         settingData_get, dataSize)
-        print("LJXAwrap.LJX8IF_GetSetting:", hex(res),
-              "<Get value>=", settingData_get[0])
-        
+            
         
     def callback(self, p_header, p_height, p_lumi,
                  luminance_enable, xpointnum, profnum, notify, user):
@@ -393,13 +330,12 @@ class LJXAutoStopAcquisition:
 if __name__ == "__main__":
     acq = LJXAutoStopAcquisition(
         data_timeout=2.0,   # stop if no data for 2 sec
-        csv_filename="scan_stream.csv",
+        csv_filename="yepyep_yep.csv",
         auto_restart=True,  # enable auto-restart
         restart_delay=2.0,  # 2 second delay between cycles
         max_cycles=None     # unlimited cycles (use Ctrl+C to stop)
     )
     # Example usages:
-    # acq.set_speed(1000)  # Set to 1000Hz sampling
-    # acq.get_speed()
-    acq._example()
-    # acq.run()
+    acq.set_speed(100)  # Set to 1000Hz sampling
+    acq.get_speed()
+    acq.run()
