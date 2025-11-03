@@ -29,6 +29,7 @@ class LJXAutoStopAcquisition:
         self.restart_delay = restart_delay
         self.max_cycles = max_cycles
 
+
         # Ethernet config
         self.ethernetConfig = LJXAwrap.LJX8IF_ETHERNET_CONFIG()
         for i, val in enumerate(ip):
@@ -51,6 +52,40 @@ class LJXAutoStopAcquisition:
         self.current_cycle = 0
         self.total_profiles_collected = 0
         self.running = True
+
+
+    def set_speed(self, speed: int):
+        """Set the sampling frequency of the device."""
+
+        err = ctypes.c_uint()
+        dataSize = 4
+        depth = 1  # 0: Write, 1: Running, 2: Save
+        targetSetting = LJXAwrap.LJX8IF_TARGET_SETTING()
+
+        speeds = {2000: 7, 1000: 6, 500: 5, 200: 4, 100: 3, 50: 2, 20: 1, 10: 0}
+
+        if speed not in speeds:
+            raise ValueError(f"Unsupported speed: {speed}Hz. Supported speeds: {list(speeds.keys())}Hz")
+        speed_setting = speeds[speed]
+        self.sampling_frequency = speed
+
+        pyArr = [speed_setting, 0, 0, 0]  # Sampling Cycle setting value. 6: 1000Hz
+        settingData_set = (ctypes.c_ubyte * dataSize)(*pyArr)
+
+        res = LJXAwrap.LJX8IF_SetSetting(self.device_id, depth,
+                                         targetSetting,
+                                         settingData_set, dataSize, err)
+        print("LJXAwrap.LJX8IF_SetSetting:", hex(res),
+              "<Set value>=", settingData_set[0],
+              "<SettingError>=", hex(err.value))
+
+        # Get setting. This is not mandatory. Just to confirm.
+        settingData_get = (ctypes.c_ubyte * dataSize)()
+        res = LJXAwrap.LJX8IF_GetSetting(self.device_id, depth,
+                                         targetSetting,
+                                         settingData_get, dataSize)
+        print("LJXAwrap.LJX8IF_GetSetting:", hex(res),
+              "<Get value>=", settingData_get[0])
 
     def callback(self, p_header, p_height, p_lumi,
                  luminance_enable, xpointnum, profnum, notify, user):
@@ -239,4 +274,5 @@ if __name__ == "__main__":
         restart_delay=2.0,  # 2 second delay between cycles
         max_cycles=None     # unlimited cycles (use Ctrl+C to stop)
     )
-    acq.run()
+    acq.set_speed(1000)  # Set to 1000Hz sampling
+    # acq.run()
