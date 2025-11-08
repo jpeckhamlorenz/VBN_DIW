@@ -514,6 +514,13 @@ class BeadScan:
                 Area under the profile curve.
         """
         plt.figure()
+        plt.xlim(-1, 3)
+        plt.ylim(-0.1, 2.0)
+
+        plt.gca().set_aspect('equal', adjustable='box')
+
+
+
         plt.plot(profile_x, profile_z, '-k', label='Profile')
         if ransac_line is not None:
             plt.plot(profile_x, ransac_line, '--r', label='RANSAC floor')
@@ -719,7 +726,7 @@ class BeadScan:
             if self.verbose:
                 print("Flow rates plot saved as 'volumes_flowrates.png'")
 
-# %%
+
 if __name__ == "__main__":
     folderpath = 'data'
     # filename = 'scan_test_2.csv'

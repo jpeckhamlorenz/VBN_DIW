@@ -2,3 +2,7 @@ src/.DS_Store
 .DS_Store
 *.csv
 /src/data
+/src/results
+*.png
+src/constants/__pycache__/plotting.cpython-311.pyc
+.idea/other.xml
