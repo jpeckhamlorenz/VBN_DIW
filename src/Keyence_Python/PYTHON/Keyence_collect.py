@@ -29,6 +29,8 @@ class LJXAutoStopAcquisition:
         self.restart_delay = restart_delay
         self.max_cycles = max_cycles
 
+        self._reset_for_next_cycle()
+
 
         # Ethernet config
         self.ethernetConfig = LJXAwrap.LJX8IF_ETHERNET_CONFIG()
@@ -330,12 +332,12 @@ class LJXAutoStopAcquisition:
 if __name__ == "__main__":
     acq = LJXAutoStopAcquisition(
         data_timeout=2.0,   # stop if no data for 2 sec
-        csv_filename="yepyep_yep.csv",
+        csv_filename="baseline.csv",
         auto_restart=True,  # enable auto-restart
         restart_delay=2.0,  # 2 second delay between cycles
         max_cycles=None     # unlimited cycles (use Ctrl+C to stop)
     )
     # Example usages:
-    acq.set_speed(100)  # Set to 1000Hz sampling
+    acq.set_speed(1000)  # Set to 1000Hz sampling
     acq.get_speed()
     acq.run()
