@@ -166,8 +166,8 @@ def beadwidth_command_callback(msg):
 def listener():
 
     rospy.init_node('VBN')
-    rospy.Subscriber('flowrate_command', Float32, flowrate_command_callback, queue_size=1)
-    rospy.Subscriber('beadwidth_command', Float32MultiArray, beadwidth_command_callback, queue_size=1)
+    rospy.Subscriber('/flowrate_command', Float32, flowrate_command_callback, queue_size=1)
+    rospy.Subscriber('/beadwidth_command', Float32MultiArray, beadwidth_command_callback, queue_size=1)
     print("We are gooning. (Subscribed to flowrate/beadwidth/beadspeed)")
     rospy.spin()
     

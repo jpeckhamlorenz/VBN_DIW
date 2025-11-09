@@ -13,7 +13,7 @@ import threading
 # %%
 
 class KeyenceScan:
-    def __init__(self, GPIO_PIN: int = 18, scan_freq: int = 100,
+    def __init__(self, GPIO_PIN: int = 18, scan_freq: int = 1000,
                  control_freq: float = 20.0, stale_timeout: float = 2.0, debounce_buffer: float = 0.05):
         self.GPIO_PIN = GPIO_PIN
         self.SCAN_FREQ = scan_freq
