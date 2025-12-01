@@ -18,8 +18,8 @@ plt.close('all')
 
 # %%
 class BeadScan:
-    def __init__(self, folderpath, filename, toolname, scan_speed: float,
-                 scan_rate: float = 100, resolution: float = 0.02, max_bead_width: float = 3.0,
+    def __init__(self, folderpath, filename, toolname, scan_speed: float, print_speed: float,
+                 scan_rate: float = 1000, resolution: float = 0.02, max_bead_width: float = 3.0,
                  slice_thickness_override = None, datatrim = (0, 800), verbose_prints = False):
         # Parameters
         ############################## typ: datatrim = (60, 550) for 11.1 mm/s scan speed
@@ -29,6 +29,7 @@ class BeadScan:
         self._toolname = toolname  # Name of the toolpath file
         self._datatrim = datatrim  # Data trim parameters (leftslice, rightslice)
         self.scan_speed = scan_speed  # Speed of the scan [mm/s]
+        self.print_speed = print_speed  # Speed of the original print [mm/s]
         self.scan_rate = scan_rate  # Scan rate [Hz]
         self.resolution = resolution  # Resolution of the scan [mm]
         self.max_bead_width = max_bead_width  # Maximum expected bead diameter [mm]
@@ -42,14 +43,14 @@ class BeadScan:
         ##############################
 
         # Load and clean data
-        self.time, self.toolpath = self._load_toolpath()  # Load toolpath from file
         self.data_raw = self._load_data()
+        self.time_scan, self.time_print, self.toolpath = self._load_toolpath()  # Load toolpath from file
         self.data_clean = self._clean_data(self.data_raw)
         self.data_trim = self._height_correct_data(self.data_clean)
         self.X, self.Y, self.Z = self._create_raster()
         self.points, self.valid_mask = self._get_point_cloud()
 
-    def _load_toolpath(self):
+    def _load_toolpath(self, lowering_endtime = 15.0):
         """
         Load the toolpath from a CSV file.
         """
@@ -58,9 +59,21 @@ class BeadScan:
         time = np.loadtxt(filepath, delimiter=',', skiprows=1, usecols=(0,))
 
         self.raw_toolpath = toolpath.copy()
+
+
+        # upsample the toolpath to match the number of rows in the data
+        num_rows_data, _ = self.data_raw.shape
+        if len(toolpath) < num_rows_data:
+            interp_func = interp1d(np.linspace(0, 1, len(toolpath)), toolpath, axis=0, kind='linear', fill_value="extrapolate")
+            toolpath = interp_func(np.linspace(0, 1, num_rows_data))
+            time = np.interp(np.linspace(0, 1, num_rows_data), np.linspace(0, 1, len(time)), time)
+
+        self.raw_toolpath_upsampled = toolpath.copy()
         toolpath[:, 2] = np.mean(toolpath[:, 2])
 
-        return time, toolpath
+        time_print = (time - lowering_endtime) * (self.scan_speed / self.print_speed)
+
+        return time, time_print, toolpath
 
     def _load_data(self):
         """
@@ -91,7 +104,7 @@ class BeadScan:
         Correct for the height variations in the scanning toolpath.
         """
 
-        heights = self.raw_toolpath[:,2]
+        heights = self.raw_toolpath_upsampled[:,2]
         mean_height = np.mean(heights)
         adjustments = heights - mean_height
 
@@ -497,7 +510,7 @@ class BeadScan:
                                                  base_threshold = 0.3,index = index, save_vis=save_vis)
             else:
                 plt.pause(0.1)
-                # plt.close()
+                plt.close()
 
         return profile_x, profile_z, line_y, area
 
@@ -663,6 +676,7 @@ class BeadScan:
             flowrate : float
                 Flow rate in mm^3/s.
         """
+
         # check that self.time is constant intervals (eg, 0.1s steps)
         t = self.time
         test0 = np.round(t[1:] - t[:-1], 6)
@@ -682,7 +696,9 @@ class BeadScan:
         dt = np.round(np.diff(t),6)  # s
         dt = np.append(dt, dt[-1])  # make sure dt is the same length as areas
 
-        volumes = np.array(areas) * self.slice_thickness  # mm^3
+        areas_clean = np.array(areas)  # mm^2
+        areas_clean[areas_clean == None] = 0
+        volumes = areas_clean * self.slice_thickness  # mm^3
         flowrates = volumes / dt  # mm^3/s
 
         if visualize:
@@ -700,7 +716,7 @@ class BeadScan:
             volumes : list of float
                 Volumes in mm^3.s
         """
-        t = self.time
+        t = self.time_print
         plt.figure(figsize=(12, 6))
         plt.subplot(2, 1, 1)
         plt.plot(t, flowrates, label='Flow Rate (mm^3/s)', color='blue')
@@ -727,25 +743,110 @@ class BeadScan:
                 print("Flow rates plot saved as 'volumes_flowrates.png'")
 
 
+    def save_results(self, flowrates = None, volumes = None, areas = None, scan_points = None,
+                            profile_xs = None, profile_zs = None, ground_lines = None,
+                            output_folderpath = 'data', output_filename = None):
+        """
+        Save the results to a CSV file.
+        Parameters:
+            flowrates : list of float
+                Flow rates in mm^3/s.
+            volumes : list of float
+                Volumes in mm^3.
+            areas : list of float
+                Areas in mm^2.
+            scan_points : (M, 3) array
+                Flattened scan point cloud.
+            profile_xs : list of (K,) arrays
+                List of distance along slice axis for each profile.
+            profile_zs : list of (K,) arrays
+                List of height values of slice for each profile.
+            ground_lines : list of (K,) arrays
+                List of ground line values for each profile.
+            output_filename : str
+                Name of the output CSV file.
+        """
+        saved_names = []
+        saved_items = []
+
+        if self.time_scan is not None:
+            saved_names.append('time')
+            saved_items.append(self.time)
+
+        if self.time_print is not None:
+            saved_names.append('time_print')
+            saved_items.append(self.time_print)
+
+        if flowrates is not None:
+            saved_names.append('flowrates')
+            saved_items.append(flowrates)
+
+        if volumes is not None:
+            saved_names.append('volumes')
+            saved_items.append(volumes)
+
+        if areas is not None:
+            areas_clean = np.array(areas)
+            areas_clean[areas_clean == None] = np.nan
+            saved_names.append('areas')
+            saved_items.append(areas_clean)
+
+        if scan_points is not None:
+            saved_names.append('scan_points')
+            saved_items.append(scan_points)
+
+        if profile_xs is not None and profile_zs is not None and ground_lines is not None:
+            saved_names.append('profile_xs')
+            saved_items.append(profile_xs)
+
+            saved_names.append('profile_zs')
+            saved_items.append(profile_zs)
+
+            saved_names.append('ground_lines')
+            saved_items.append(ground_lines)
+
+        if len(saved_items) == 0:
+            if self.verbose:
+                print("No data provided to save.")
+            return
+        else:
+            if output_filename is not None:
+                self._filename = output_filename + '.csv'
+            else:
+                full_filepath = f"{output_folderpath}/{self._filename.replace('.csv','')}.npz"
+
+            # np.savez_compressed('data/' + filename.replace('.csv', '_results.npz'),
+            #                     t=beadscan.time, q=flowrates)
+
+            # Save to compresed npz file
+            np.savez_compressed(full_filepath, **{name: item for name, item in zip(saved_names, saved_items)})
+            if self.verbose:
+                # list which items were saved in a print statement
+                print(f"Results saved to '{full_filepath}' with the following items:")
+                for name in saved_names:
+                    print(f"- {name}")
+
+
+
+
 if __name__ == "__main__":
     folderpath = 'data'
-    # filename = 'scan_test_2.csv'
-    # filename = 'two_rods.csv'
-    filename = 'scan_test_1.csv'
-    toolname = 'scan_test_1_toolpath.csv'
-    # toolname = 'scan_test_2_toolpath.csv'
-    # scan_speed = 11.1  # mm/s
-    scan_speed = 10.0  # mm/s
 
-    visualize = True
-    save_vis = True
-    verbose_prints = True
+    filename = 'beadpinch_cycle_002.csv'
+    toolname = 'beadpinch.csv'
+    scan_speed = 5.0  # mm/s
+    print_speed = 10.0  # mm/s
+
+    visualize = False
+    save_vis = False
+    verbose_prints = False
+    save_data = True
 
     if save_vis:
         visualize = True
 
 
-    beadscan = BeadScan(folderpath, filename, toolname, scan_speed, verbose_prints=verbose_prints)
+    beadscan = BeadScan(folderpath, filename, toolname, scan_speed, print_speed, verbose_prints=verbose_prints)
     Z_rs, R_rs = beadscan.flatten_ransac(visualize=visualize, save_vis=save_vis)
     toolpath_aligned, toolpath_transform = beadscan.register_toolpath_to_scan(visualize=visualize, save_vis=save_vis)
 
@@ -756,5 +857,15 @@ if __name__ == "__main__":
 
     flowrates, volumes = beadscan.get_flowrates(areas, visualize=visualize, save_vis=save_vis)
 
+    # save all to a csv file
+    if save_data:
+        # beadscan.save_results_to_csv(areas=areas, output_filename='beadscan_areas.csv')
+        beadscan.save_results(flowrates=flowrates,
+                              # volumes=volumes, areas=areas,
+                                     # scan_points=scan_points,
+                                     # profile_xs=profile_xs, profile_zs=profile_zs, ground_lines=ground_lines,
+                                     output_filename='test2')
+
+
     # profile_x, profile_z, ransac_line, area = beadscan.extract_profile(toolpath_aligned, scan_points,
-    #                                                 index=440, width=0.0, visualize=visualize, save_vis=save_vis)
+    #                                                 index=21998, width=0.0, visualize=visualize, save_vis=save_vis)
