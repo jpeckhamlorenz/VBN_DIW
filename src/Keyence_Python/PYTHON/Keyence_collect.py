@@ -332,7 +332,7 @@ class LJXAutoStopAcquisition:
 if __name__ == "__main__":
     acq = LJXAutoStopAcquisition(
         data_timeout=2.0,   # stop if no data for 2 sec
-        csv_filename="baseline.csv",
+        csv_filename="pattern_10.csv",
         auto_restart=True,  # enable auto-restart
         restart_delay=2.0,  # 2 second delay between cycles
         max_cycles=None     # unlimited cycles (use Ctrl+C to stop)
