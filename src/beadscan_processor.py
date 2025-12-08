@@ -256,9 +256,9 @@ class BeadScan:
         plt.show()
 
         if save_vis:
-            plt.savefig('flattened_ransac.png', dpi=600)
+            plt.savefig(self._filename[:-4]+'_flattened_ransac.png', dpi=600)
             if self.verbose:
-                print("Flattened RANSAC plot saved as 'flattened_ransac.png'")
+                print("Flattened RANSAC plot saved as '" + self._filename[:-4] + "_flattened_ransac.png'")
 
     def _plot_leastsquares(self, save_vis=False):
         """
@@ -277,9 +277,9 @@ class BeadScan:
         # plt.show()
 
         if save_vis:
-            plt.savefig('flattened_leastsquares.png', dpi=600)
+            plt.savefig(self._filename[:-4]+'_flattened_leastsquares.png', dpi=600)
             if self.verbose:
-                print("Flattened least squares plot saved as 'flattened_leastsquares.png'")
+                print("Flattened least squares plot saved as '" + self._filename[:-4] + "_flattened_leastsquares.png'")
 
     def _plot_raw(self, save_vis=False):
         """
@@ -298,9 +298,9 @@ class BeadScan:
         # plt.show()
 
         if save_vis:
-            plt.savefig('raw_surface.png', dpi=600)
+            plt.savefig(self._filename[:-4]+'_raw_surface.png', dpi=600)
             if self.verbose:
-                print("Raw surface plot saved as 'raw_surface.png'")
+                print("Raw surface plot saved as '" + self._filename[:-4] + "_raw_surface.png'")
 
     def register_toolpath_to_scan(self, base_threshold = 0.3, icp_threshold=0.5, visualize=True, save_vis=False):
         """
@@ -395,12 +395,12 @@ class BeadScan:
                 vis.poll_events()
                 vis.update_renderer()
                 # o3d.io.write_point_cloud("aligned_toolpath.ply", pcd_toolpath)
-                vis.capture_screen_image("aligned_toolpath.png", do_render=True)
+                vis.capture_screen_image(self._filename[:-4]+"_aligned_toolpath.png", do_render=True)
                 vis.destroy_window()
 
                 if self.verbose:
                     # print("Aligned toolpath saved as 'aligned_toolpath.ply'")
-                    print(f"Point cloud rendered and saved as 'aligned_toolpath.png'")
+                    print(f"Point cloud rendered and saved as '" + self._filename[:-4] + "_aligned_toolpath.png'")
 
             else:
                 vis.run()
@@ -550,15 +550,15 @@ class BeadScan:
 
         if save_vis:
             if index is not None:
-                plt.savefig(f"profile_slice_index_{index}.png", dpi=600)
+                plt.savefig(self._filename[:-4]+f"_profile_slice_index_{index}.png", dpi=600)
                 if self.verbose:
-                    print(f"Profile slice saved as 'profile_slice_index_{index}.png'")
+                    print(f"Profile slice saved as '" + self._filename[:-4] + "_profile_slice_index_{index}.png'")
                 plt.pause(0.1)
                 plt.close()
             else:
-                plt.savefig("profile_slice.png", dpi=600)
+                plt.savefig(self._filename[:-4]+"_profile_slice.png", dpi=600)
                 if self.verbose:
-                    print("Profile slice saved as 'profile_slice.png'")
+                    print("Profile slice saved as '" + self._filename[:-4] + "_profile_slice.png'")
                 plt.pause(0.1)
                 plt.close()
 
@@ -604,18 +604,18 @@ class BeadScan:
         if save_vis:
             if index is not None:
                 # o3d.io.write_point_cloud(f"slice_region_index_{index}.ply", pcd_slice)
-                vis.capture_screen_image(f"slice_region_index_{index}.png", do_render=True)
+                vis.capture_screen_image(self._filename[:-4]+f"_slice_region_index_{index}.png", do_render=True)
                 vis.destroy_window()
 
                 if self.verbose:
-                    print(f"Slice region saved as 'slice_region_index_{index}.png'")
+                    print(f"Slice region saved as '" + self._filename[:-4] + "_slice_region_index_{index}.png'")
             else:
                 # o3d.io.write_point_cloud("slice_region.ply", pcd_slice)
-                vis.capture_screen_image("slice_region.png", do_render=True)
+                vis.capture_screen_image(self._filename[:-4]+"_slice_region.png", do_render=True)
                 vis.destroy_window()
 
                 if self.verbose:
-                    print("Slice region saved as 'slice_region.ply'")
+                    print("Slice region saved as '" + self._filename[:-4] + "_slice_region.ply'")
 
     def get_all_profile_areas(self, toolpath_points, scan_points,
                               width=0.0, resolution=0.0, index_override = [0,0], visualize=False, save_vis=False):
@@ -738,9 +738,9 @@ class BeadScan:
         plt.show()
 
         if save_vis:
-            plt.savefig('volumes_flowrates.png', dpi=600)
+            plt.savefig(self._filename[:-4]+'_volumes_flowrates.png', dpi=600)
             if self.verbose:
-                print("Flow rates plot saved as 'volumes_flowrates.png'")
+                print("Flow rates plot saved as '" + self._filename[:-4] + "_volumes_flowrates.png'")
 
 
     def save_results(self, flowrates = None, volumes = None, areas = None, scan_points = None,
@@ -827,45 +827,46 @@ class BeadScan:
                     print(f"- {name}")
 
 
-
-
 if __name__ == "__main__":
+
+    # %% user parameters
     folderpath = 'data'
 
-    filename = 'beadpinch_cycle_002.csv'
-    toolname = 'beadpinch.csv'
+    filename = 'pattern_10_cycle_002.csv'
+    toolname = 'pattern_10.csv'
     scan_speed = 5.0  # mm/s
     print_speed = 10.0  # mm/s
 
     visualize = False
     save_vis = False
-    verbose_prints = False
     save_data = True
+    verbose_prints = False
+
 
     if save_vis:
         visualize = True
 
-
+    # setup beadscan analysis
     beadscan = BeadScan(folderpath, filename, toolname, scan_speed, print_speed, verbose_prints=verbose_prints)
     Z_rs, R_rs = beadscan.flatten_ransac(visualize=visualize, save_vis=save_vis)
     toolpath_aligned, toolpath_transform = beadscan.register_toolpath_to_scan(visualize=visualize, save_vis=save_vis)
 
     scan_points = beadscan.points_flattened[beadscan.valid_mask]  # Use only valid points from flattened scan
 
+
+'''    # %% run all profiles
     profile_xs, profile_zs, ground_lines, areas = beadscan.get_all_profile_areas(toolpath_aligned, scan_points,
                                                                    visualize=visualize, save_vis=save_vis)
 
     flowrates, volumes = beadscan.get_flowrates(areas, visualize=visualize, save_vis=save_vis)
 
-    # save all to a csv file
     if save_data:
-        # beadscan.save_results_to_csv(areas=areas, output_filename='beadscan_areas.csv')
         beadscan.save_results(flowrates=flowrates,
                               # volumes=volumes, areas=areas,
                                      # scan_points=scan_points,
                                      # profile_xs=profile_xs, profile_zs=profile_zs, ground_lines=ground_lines,
                                      output_filename='test2')
 
-
-    # profile_x, profile_z, ransac_line, area = beadscan.extract_profile(toolpath_aligned, scan_points,
-    #                                                 index=21998, width=0.0, visualize=visualize, save_vis=save_vis)
+    # %% run a single profile
+    profile_x, profile_z, ransac_line, area = beadscan.extract_profile(toolpath_aligned, scan_points,
+                                                    index=21998, width=0.0, visualize=visualize, save_vis=save_vis)'''
