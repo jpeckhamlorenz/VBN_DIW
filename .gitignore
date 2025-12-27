@@ -1,4 +1,5 @@
 src/.DS_Store
+/src/archive
 .DS_Store
 *.csv
 /src/data
@@ -6,3 +7,4 @@ src/.DS_Store
 *.png
 src/constants/__pycache__/plotting.cpython-311.pyc
 .idea/other.xml
+*.npz

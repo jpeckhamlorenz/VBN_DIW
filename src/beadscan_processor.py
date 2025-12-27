@@ -854,7 +854,7 @@ if __name__ == "__main__":
     scan_points = beadscan.points_flattened[beadscan.valid_mask]  # Use only valid points from flattened scan
 
 
-'''    # %% run all profiles
+    # %% run all profiles for a single bead scan
     profile_xs, profile_zs, ground_lines, areas = beadscan.get_all_profile_areas(toolpath_aligned, scan_points,
                                                                    visualize=visualize, save_vis=save_vis)
 
@@ -867,6 +867,7 @@ if __name__ == "__main__":
                                      # profile_xs=profile_xs, profile_zs=profile_zs, ground_lines=ground_lines,
                                      output_filename='test2')
 
-    # %% run a single profile
-    profile_x, profile_z, ransac_line, area = beadscan.extract_profile(toolpath_aligned, scan_points,
-                                                    index=21998, width=0.0, visualize=visualize, save_vis=save_vis)'''
+    # %% run a single profile for a single bead scan
+
+    # profile_x, profile_z, ransac_line, area = beadscan.extract_profile(toolpath_aligned, scan_points,
+    #                                                 index=21998, width=0.0, visualize=visualize, save_vis=save_vis)
