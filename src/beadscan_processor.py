@@ -652,7 +652,7 @@ class BeadScan:
             indices = range(index_override[0], index_override[1])
 
         for i in tqdm(indices, desc="Extracting profiles"):
-            px, pz, rl, a = beadscan.extract_profile(toolpath_points, scan_points, index=i,
+            px, pz, rl, a = self.extract_profile(toolpath_points, scan_points, index=i,
                                                      width = width, resolution = resolution,
                                                      visualize=visualize, save_vis=save_vis)
             profile_xs.append(px)
@@ -678,7 +678,7 @@ class BeadScan:
         """
 
         # check that self.time is constant intervals (eg, 0.1s steps)
-        t = self.time
+        t = self.time_scan
         test0 = np.round(t[1:] - t[:-1], 6)
         dt = np.mean(test0)
         test1 = test0 == dt  # check if all time steps are equal
@@ -771,7 +771,7 @@ class BeadScan:
 
         if self.time_scan is not None:
             saved_names.append('time')
-            saved_items.append(self.time)
+            saved_items.append(self.time_scan)
 
         if self.time_print is not None:
             saved_names.append('time_print')
@@ -811,7 +811,8 @@ class BeadScan:
             return
         else:
             if output_filename is not None:
-                self._filename = output_filename + '.csv'
+                # self._filename = output_filename + '.csv'
+                full_filepath = f"{output_folderpath}/{output_filename.rsplit('.', maxsplit=1)[0]}.npz"
             else:
                 full_filepath = f"{output_folderpath}/{self._filename.replace('.csv','')}.npz"
 

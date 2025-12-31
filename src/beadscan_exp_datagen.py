@@ -1,4 +1,5 @@
 import os
+from tqdm import tqdm
 from beadscan_processor import BeadScan
 
 # %% user input
@@ -7,10 +8,10 @@ folderpath = 'data'
 scan_speed = 5.0  # mm/s
 print_speed = 10.0  # mm/s
 
-visualize = True
-save_vis = True
+visualize = False
+save_vis = False
 save_data = True
-verbose_prints = True
+verbose_prints = False
 
 
 # %% calculations
@@ -26,7 +27,9 @@ if save_vis:
 
 
 # %% running cycles
-for filename in file_list:
+for filename in tqdm(file_list, desc='Processing beadscan files'):
+
+    print(f'Processing file: {filename}')
 
     pattern = filename.rsplit('_', maxsplit=2)[0]
     cycle = filename.split('_', maxsplit=2)[-1].split('.')[0]
