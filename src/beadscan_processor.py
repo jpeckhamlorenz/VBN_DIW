@@ -831,16 +831,30 @@ class BeadScan:
 if __name__ == "__main__":
 
     # %% user parameters
-    folderpath = 'data'
 
-    filename = 'pattern_10_cycle_002.csv'
-    toolname = 'pattern_10.csv'
+    # m_static_naive use cycle 1
+    # m_static_ideal use cycle 1
+    # m_VBN_2 use cycle 2
+
+    # sealant_static use cycle 3
+    # sealant_VBN use cycle 1
+
+    demo = 'sealant'
+    type = 'VBN'
+    cycle = 1
+    folderpath = 'demos'
+
+    # filename = 'm_static_naive_cycle_002.csv'
+    # toolname = 'm_static_naive.csv'
+
+    filename = f'{demo}_{type}_cycle_{cycle:03d}.csv'
+    toolname = f'{demo}_{type}.csv'
     scan_speed = 5.0  # mm/s
-    print_speed = 10.0  # mm/s
+    print_speed = 2.5  # mm/s
 
-    visualize = False
-    save_vis = False
-    save_data = True
+    visualize = True
+    save_vis = True
+    save_data = False
     verbose_prints = False
 
 
@@ -856,17 +870,18 @@ if __name__ == "__main__":
 
 
     # %% run all profiles for a single bead scan
-    profile_xs, profile_zs, ground_lines, areas = beadscan.get_all_profile_areas(toolpath_aligned, scan_points,
-                                                                   visualize=visualize, save_vis=save_vis)
 
-    flowrates, volumes = beadscan.get_flowrates(areas, visualize=visualize, save_vis=save_vis)
-
-    if save_data:
-        beadscan.save_results(flowrates=flowrates,
-                              # volumes=volumes, areas=areas,
-                                     # scan_points=scan_points,
-                                     # profile_xs=profile_xs, profile_zs=profile_zs, ground_lines=ground_lines,
-                                     output_filename='test2')
+    # profile_xs, profile_zs, ground_lines, areas = beadscan.get_all_profile_areas(toolpath_aligned, scan_points,
+    #                                                                visualize=visualize, save_vis=save_vis)
+    #
+    # flowrates, volumes = beadscan.get_flowrates(areas, visualize=visualize, save_vis=save_vis)
+    #
+    # if save_data:
+    #     beadscan.save_results(flowrates=flowrates,
+    #                           # volumes=volumes, areas=areas,
+    #                                  # scan_points=scan_points,
+    #                                  # profile_xs=profile_xs, profile_zs=profile_zs, ground_lines=ground_lines,
+    #                                  output_filename='test2')
 
     # %% run a single profile for a single bead scan
 
