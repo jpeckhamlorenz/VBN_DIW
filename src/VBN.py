@@ -107,8 +107,8 @@ def flowrate_command_callback(msg):
     assert 0.0 <= abs(msg.data) <= 15.0, "Flowrate Command is out of bounds"
     Q = msg.data
     
-    # log_message = "Flowrate Command: %s" %Q
-    # rospy.loginfo(log_message)  # writes output to terminal
+    log_message = "Flowrate Command: %s" %Q
+    rospy.loginfo(log_message)  # writes output to terminal
 
     pi.set_PWM_dutycycle(stepA, 128)
     pi.set_PWM_frequency(stepA, int(abs(steps_per_uL*Q)))
