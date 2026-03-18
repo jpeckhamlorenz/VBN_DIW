@@ -107,8 +107,8 @@ def flowrate_command_callback(msg):
     assert 0.0 <= abs(msg.data) <= 15.0, "Flowrate Command is out of bounds"
     Q = msg.data
     
-    log_message = "Flowrate Command: %s" %Q
-    rospy.loginfo(log_message)  # writes output to terminal
+    # log_message = "Flowrate Command: %s" %Q
+    # rospy.loginfo(log_message)  # writes output to terminal
 
     pi.set_PWM_dutycycle(stepA, 128)
     pi.set_PWM_frequency(stepA, int(abs(steps_per_uL*Q)))
@@ -130,13 +130,13 @@ def beadwidth_command_callback(msg):
     W_bead = float(W_data[0])
     W_speed = float(W_data[1])
     
-    rospy.loginfo(W_data)
+    # rospy.loginfo(W_data)
 
-    bead_message = "Beadwidth Command: %s" % W_bead
-    rospy.loginfo(bead_message)  # writes output to terminal
+    # bead_message = "Beadwidth Command: %s" % W_bead
+    # rospy.loginfo(bead_message)  # writes output to terminal
 
-    speed_message = "Beadspeed Command: %s" % W_speed
-    rospy.loginfo(speed_message)  # writes output to terminal
+    # speed_message = "Beadspeed Command: %s" % W_speed
+    # rospy.loginfo(speed_message)  # writes output to terminal
 
     calibration = [6596, -10954]
     W = calibration[0] * W_bead + calibration[1]
@@ -150,9 +150,9 @@ def beadwidth_command_callback(msg):
     if not -17000 < W < 17000:
         rospy.logerror("\nError: not a valid nozzle position", end = '\n')
     else:
-        log_message = "Nozzle Width Command: %s" %W
+        # log_message = "Nozzle Width Command: %s" %W
         
-        rospy.loginfo(log_message)  # writes output to terminal
+        # rospy.loginfo(log_message)  # writes output to terminal
         thread1 = threading.Thread(target = func1, args = (W,W_vel))
         thread2 = threading.Thread(target = func2, args = (W,W_vel))
 
