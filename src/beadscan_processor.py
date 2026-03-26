@@ -1,26 +1,35 @@
 import matplotlib.pyplot as plt
 import numpy as np
+
 # import pandas as pd
 import open3d as o3d
-from constants.plotting import font
 from matplotlib import cm
-from sklearn.linear_model import RANSACRegressor
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.pipeline import make_pipeline
-from scipy.spatial import cKDTree
+from scipy.integrate import simpson
 from scipy.interpolate import interp1d
-from scipy.integrate import simps
+from sklearn.linear_model import RANSACRegressor
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import PolynomialFeatures
 from tqdm import tqdm
+
 plt.close('all')
-
-
 
 
 # %%
 class BeadScan:
-    def __init__(self, folderpath, filename, toolname, scan_speed: float, print_speed: float,
-                 scan_rate: float = 1000, resolution: float = 0.02, max_bead_width: float = 3.0,
-                 slice_thickness_override = None, datatrim = (0, 800), verbose_prints = False):
+    def __init__(
+        self,
+        folderpath,
+        filename,
+        toolname,
+        scan_speed: float,
+        print_speed: float,
+        scan_rate: float = 1000,
+        resolution: float = 0.02,
+        max_bead_width: float = 3.0,
+        slice_thickness_override=None,
+        datatrim=(0, 800),
+        verbose_prints=False,
+    ):
         # Parameters
         ############################## typ: datatrim = (60, 550) for 11.1 mm/s scan speed
         ##############################
@@ -50,21 +59,20 @@ class BeadScan:
         self.X, self.Y, self.Z = self._create_raster()
         self.points, self.valid_mask = self._get_point_cloud()
 
-    def _load_toolpath(self, lowering_endtime = 15.0):
-        """
-        Load the toolpath from a CSV file.
-        """
-        filepath = f"{self._folderpath}/{self._toolname}"
+    def _load_toolpath(self, lowering_endtime=15.0):
+        """Load the toolpath from a CSV file."""
+        filepath = f'{self._folderpath}/{self._toolname}'
         toolpath = np.loadtxt(filepath, delimiter=',', skiprows=1, usecols=(1, 2, 3))
         time = np.loadtxt(filepath, delimiter=',', skiprows=1, usecols=(0,))
 
         self.raw_toolpath = toolpath.copy()
 
-
         # upsample the toolpath to match the number of rows in the data
         num_rows_data, _ = self.data_raw.shape
         if len(toolpath) < num_rows_data:
-            interp_func = interp1d(np.linspace(0, 1, len(toolpath)), toolpath, axis=0, kind='linear', fill_value="extrapolate")
+            interp_func = interp1d(
+                np.linspace(0, 1, len(toolpath)), toolpath, axis=0, kind='linear', fill_value='extrapolate'
+            )
             toolpath = interp_func(np.linspace(0, 1, num_rows_data))
             time = np.interp(np.linspace(0, 1, num_rows_data), np.linspace(0, 1, len(time)), time)
 
@@ -76,10 +84,8 @@ class BeadScan:
         return time, time_print, toolpath
 
     def _load_data(self):
-        """
-        Load the data from the CSV file.
-        """
-        filepath = f"{self._folderpath}/{self._filename}"
+        """Load the data from the CSV file."""
+        filepath = f'{self._folderpath}/{self._filename}'
         data = np.loadtxt(filepath, delimiter=',')
 
         return data
@@ -87,24 +93,22 @@ class BeadScan:
     def _clean_data(self, data):
         """
         Clean the data by replacing -99999.9999 with 0.0.
+
         Turn data from unsigned 16-bit to signed by subtracting 32768.
         Convert from raw units to microns by dividing by 100
         Convert from microns to mm by dividing by 1000
         """
         # clean_data = np.where(data == -99999.9999, np.nan, data)
         clean_data = np.where(data < 10, np.nan, data)
-        signed_data = clean_data - 32768.0
-        data_microns = signed_data / 100.0
+        # signed_data = clean_data - 32768.0
+        # data_microns = signed_data / 100.0
         data_mm = clean_data / 1000.0
 
         return data_mm
 
     def _height_correct_data(self, clean_data):
-        """
-        Correct for the height variations in the scanning toolpath.
-        """
-
-        heights = self.raw_toolpath_upsampled[:,2]
+        """Correct for the height variations in the scanning toolpath."""
+        heights = self.raw_toolpath_upsampled[:, 2]
         mean_height = np.mean(heights)
         adjustments = heights - mean_height
 
@@ -115,45 +119,37 @@ class BeadScan:
         return height_corrected_data
 
     def _create_raster(self):
-        """
-        Create a raster grid from the data.
-        """
+        """Create a raster grid from the data."""
         # Assuming the data is in a 2D array format
-        _ , cols = self.data_trim.shape
+        _, cols = self.data_trim.shape
         x = np.arange(cols) * self.resolution
         # y = np.arange(rows) * self.slice_thickness
-        y = self.toolpath[:,1]
+        y = self.toolpath[:, 1]
         X, Y = np.meshgrid(x, y)
         Z = self.data_trim
 
         return X, Y, Z
 
     def _get_point_cloud(self):
-        """
-        Convert the data to a point cloud format.
-        """
+        """Convert the data to a point cloud format."""
         points = np.column_stack((self.X.ravel(), self.Y.ravel(), self.Z.ravel()))
         valid = self.Z.ravel() > -10
 
         return points, valid
 
-    def _rotation_matrix_from_vectors(self,vec1, vec2):
+    def _rotation_matrix_from_vectors(self, vec1, vec2):
         a, b = vec1 / np.linalg.norm(vec1), vec2 / np.linalg.norm(vec2)
         v = np.cross(a, b)
         c = np.dot(a, b)
         s = np.linalg.norm(v)
         if s == 0:  # already aligned
             return np.eye(3)
-        kmat = np.array([[0, -v[2], v[1]],
-                         [v[2], 0, -v[0]],
-                         [-v[1], v[0], 0]])
+        kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
 
-        return np.eye(3) + kmat + kmat @ kmat * ((1 - c) / (s ** 2 + 1e-10))
+        return np.eye(3) + kmat + kmat @ kmat * ((1 - c) / (s**2 + 1e-10))
 
-    def flatten_leastsquares(self, visualize=True, save_vis = False):
-        """
-        Flatten the surface using least-squares fitting.
-        """
+    def flatten_leastsquares(self, visualize=True, save_vis=False):
+        """Flatten the surface using least-squares fitting."""
         valid = self.valid_mask
         points = self.points
 
@@ -176,10 +172,8 @@ class BeadScan:
 
         return Z_flat, R
 
-    def flatten_ransac(self, visualize=True, save_vis = False):
-        """
-        Flatten the surface using RANSAC plane fitting.
-        """
+    def flatten_ransac(self, visualize=True, save_vis=False):
+        """Flatten the surface using RANSAC plane fitting."""
         valid = self.valid_mask
         points = self.points[:, [0, 1]][valid]
         heights = self.points[:, 2][valid]
@@ -203,7 +197,7 @@ class BeadScan:
 
         # Apply rotation to all valid 3D points
         rotated_points = self.points @ R.T
-        rotated_points[:,2] = rotated_points[:,2] - c  # Adjust Z by subtracting the intercept
+        rotated_points[:, 2] = rotated_points[:, 2] - c  # Adjust Z by subtracting the intercept
         self.points_flattened = rotated_points
 
         # Replace X with flattened version
@@ -226,9 +220,6 @@ class BeadScan:
         # change all nans in Z_new to the minimum value of Z_new
         Z_new = np.nan_to_num(Z_new, nan=np.nanmin(Z_new))
 
-
-
-
         self.Z_flat_ransac = Z_new
 
         if visualize:
@@ -238,90 +229,60 @@ class BeadScan:
         return Z_new, R
 
     def _plot_ransac(self, save_vis=False, show_ticks=False):
-        """
-        Plot the flattened surface.
-        """
+        """Plot the flattened surface."""
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
         ax.plot_surface(self.X_flat_ransac, self.Y_flat_ransac, self.Z_flat_ransac, cmap=cm.viridis)
-        ax.set_title("Flattened Ransac")
+        ax.set_title('Flattened Ransac')
 
         if not show_ticks:
-            ax.set(xticklabels=[],
-                   yticklabels=[],
-                   zticklabels=[])
+            ax.set(xticklabels=[], yticklabels=[], zticklabels=[])
         ax.set_aspect('equal')
         # plt.axis('off')
         # plt.grid(b=None)
         plt.show()
 
         if save_vis:
-            plt.savefig(self._filename[:-4]+'_flattened_ransac.png', dpi=600)
+            plt.savefig(self._filename[:-4] + '_flattened_ransac.png', dpi=600)
             if self.verbose:
                 print("Flattened RANSAC plot saved as '" + self._filename[:-4] + "_flattened_ransac.png'")
 
     def _plot_leastsquares(self, save_vis=False):
-        """
-        Plot the flattened surface.
-        """
+        """Plot the flattened surface."""
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
         ax.plot_surface(self.X_flat_ransac, self.Y_flat_ransac, self.Z_flat_leastsquares, cmap=cm.viridis)
-        ax.set_title("Flattened Least Squares")
-        ax.set(xticklabels=[],
-               yticklabels=[],
-               zticklabels=[])
+        ax.set_title('Flattened Least Squares')
+        ax.set(xticklabels=[], yticklabels=[], zticklabels=[])
         ax.set_aspect('equal')
         # plt.axis('off')
         # plt.grid(b=None)
         # plt.show()
 
         if save_vis:
-            plt.savefig(self._filename[:-4]+'_flattened_leastsquares.png', dpi=600)
+            plt.savefig(self._filename[:-4] + '_flattened_leastsquares.png', dpi=600)
             if self.verbose:
                 print("Flattened least squares plot saved as '" + self._filename[:-4] + "_flattened_leastsquares.png'")
 
     def _plot_raw(self, save_vis=False):
-        """
-        Plot the raw surface.
-        """
+        """Plot the raw surface."""
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
         ax.plot_surface(self.X, self.Y, self.Z, cmap=cm.viridis)
-        ax.set_title("Raw Surface")
-        ax.set(xticklabels=[],
-               yticklabels=[],
-               zticklabels=[])
+        ax.set_title('Raw Surface')
+        ax.set(xticklabels=[], yticklabels=[], zticklabels=[])
         ax.set_aspect('equal')
         # plt.axis('off')
         # plt.grid(b=None)
         # plt.show()
 
         if save_vis:
-            plt.savefig(self._filename[:-4]+'_raw_surface.png', dpi=600)
+            plt.savefig(self._filename[:-4] + '_raw_surface.png', dpi=600)
             if self.verbose:
                 print("Raw surface plot saved as '" + self._filename[:-4] + "_raw_surface.png'")
 
-    def register_toolpath_to_scan(self, base_threshold = 0.3, icp_threshold=0.5, visualize=True, save_vis=False):
-        """
-        Registers a 3D toolpath to scanned surface points using ICP.
-
-        Parameters:
-            toolpath_xyz : (N, 3) numpy array
-                Toolpath point cloud (flattened and transformed).
-            scan_xyz : (M, 3) numpy array
-                Flattened scan surface as a point cloud (from height map).
-            threshold : float
-                ICP correspondence distance threshold.
-            visualize : bool
-                Whether to show before/after alignment using Open3D.
-
-        Returns:
-            aligned_toolpath : (N, 3) numpy array
-                Toolpath after alignment.
-            transformation : (4, 4) numpy array
-                Estimated transformation matrix from ICP.
-        """
+    def register_toolpath_to_scan(self, base_threshold=0.3, icp_threshold=0.5, visualize=True, save_vis=False):
+        """Register the toolpath to the scan using ICP."""
         pcd_toolpath = o3d.geometry.PointCloud()
         pcd_toolpath.points = o3d.utility.Vector3dVector(self.toolpath)
 
@@ -329,7 +290,8 @@ class BeadScan:
 
         # provide pcd_scan_points, filtered by Z value to remove base points below base_threshold
         pcd_scan.points = o3d.utility.Vector3dVector(
-            self.points_flattened[self.valid_mask][self.points_flattened[self.valid_mask][:, 2] >= base_threshold])
+            self.points_flattened[self.valid_mask][self.points_flattened[self.valid_mask][:, 2] >= base_threshold]
+        )
         # pcd_scan.points = o3d.utility.Vector3dVector(self.points_flattened[self.valid_mask])  # Use only XYZ coordinates
 
         # Initial transform = identity
@@ -337,8 +299,11 @@ class BeadScan:
 
         # Run ICP registration
         reg_result = o3d.pipelines.registration.registration_icp(
-            pcd_toolpath, pcd_scan, icp_threshold, init_transform,
-            o3d.pipelines.registration.TransformationEstimationPointToPoint()
+            pcd_toolpath,
+            pcd_scan,
+            icp_threshold,
+            init_transform,
+            o3d.pipelines.registration.TransformationEstimationPointToPoint(),
         )
 
         # Apply transformation to toolpath
@@ -347,30 +312,28 @@ class BeadScan:
 
         if visualize:
             if self.verbose:
-                print("ICP fitness:", reg_result.fitness)
-                print("Transformation matrix:\n", reg_result.transformation)
+                print('ICP fitness:', reg_result.fitness)
+                print('Transformation matrix:\n', reg_result.transformation)
                 # Convert to Open3D point clouds
 
             pcd_original = o3d.geometry.PointCloud()
             pcd_original.points = o3d.utility.Vector3dVector(self.toolpath)
 
-
-
             pcd_scan_base = o3d.geometry.PointCloud()
             pcd_scan_base.points = o3d.utility.Vector3dVector(
-                self.points_flattened[self.valid_mask][self.points_flattened[self.valid_mask][:,2] < base_threshold])
+                self.points_flattened[self.valid_mask][self.points_flattened[self.valid_mask][:, 2] < base_threshold]
+            )
 
             pcd_scan_bead = o3d.geometry.PointCloud()
             pcd_scan_bead.points = o3d.utility.Vector3dVector(
-                self.points_flattened[self.valid_mask][self.points_flattened[self.valid_mask][:, 2] >= base_threshold])
-
+                self.points_flattened[self.valid_mask][self.points_flattened[self.valid_mask][:, 2] >= base_threshold]
+            )
 
             # pcd_scan.paint_uniform_color([0.6, 0.6, 0.6])  # Green: scan
             pcd_scan_base.paint_uniform_color([0.6, 0.6, 0.6])  # Dark gray: base
             pcd_scan_bead.paint_uniform_color([0.2, 0.2, 0.2])  # Green: bead
             pcd_toolpath.paint_uniform_color([1, 0, 0])  # Red: toolpath (aligned)
             pcd_original.paint_uniform_color([0, 0, 1])  # Blue: original toolpath (optional)
-
 
             # o3d.visualization.draw_geometries([pcd_scan_base, pcd_scan_bead, pcd_toolpath, pcd_original])
 
@@ -395,30 +358,31 @@ class BeadScan:
                 vis.poll_events()
                 vis.update_renderer()
                 # o3d.io.write_point_cloud("aligned_toolpath.ply", pcd_toolpath)
-                vis.capture_screen_image(self._filename[:-4]+"_aligned_toolpath.png", do_render=True)
+                vis.capture_screen_image(self._filename[:-4] + '_aligned_toolpath.png', do_render=True)
                 vis.destroy_window()
 
                 if self.verbose:
                     # print("Aligned toolpath saved as 'aligned_toolpath.ply'")
-                    print(f"Point cloud rendered and saved as '" + self._filename[:-4] + "_aligned_toolpath.png'")
+                    print("Point cloud rendered and saved as '" + self._filename[:-4] + "_aligned_toolpath.png'")
 
             else:
                 vis.run()
                 vis.destroy_window()
 
-
-
         return aligned_toolpath, reg_result.transformation
 
-    def extract_profile(self, toolpath_points, scan_points, index,
-                        width=0.0, resolution=0.0, visualize=True, save_vis=False):
+    def extract_profile(
+        self, toolpath_points, scan_points, index, width=0.0, resolution=0.0, visualize=True, save_vis=False
+    ):
         """
         Extracts an orthogonal slice profile from the scan at a given toolpath index.
+
         Locates the "noise floor" via RANSAC.
         Identifies where the bead is along the x-direction, assuming only a single profile is present.
         Computes the area under the profile curve via Simpson method.
 
-        Parameters:
+        Parameters
+        ----------
             toolpath_points : (N, 3) array
                 Aligned toolpath coordinates (after ICP).
             scan_points : (M, 3) array
@@ -431,20 +395,26 @@ class BeadScan:
                 Interpolation spacing for profile [mm].
             visualize : bool
                 Whether to show the slice profile.
+            save_vis : bool
+                Whether to save the slice profile visualization.
 
-        Returns:
+        Returns
+        -------
             profile_x : (K,) array
                 Distance along slice axis.
             profile_z : (K,) array
                 Height values of slice.
+            line_y : (K,) array
+                Fitted line values for each profile point.cv
             area : float
                 Area under the profile curve.
+
         """
         # Toolpath point and direction
         if resolution <= 0:
             resolution = self.resolution  # Use default resolution if not specified
         if width <= 0:
-            width = self.max_bead_width * 3.0 # Use default width if not specified
+            width = self.max_bead_width * 3.0  # Use default width if not specified
 
         pt = toolpath_points[index]
         if index < len(toolpath_points) - 1:
@@ -468,9 +438,8 @@ class BeadScan:
         mask = mask1 & mask2
         slice_points = scan_points[mask]
 
-
         if slice_points.size == 0:
-            print(f"No points found for slice at index {index}")
+            print(f'No points found for slice at index {index}')
             return None, None, None, None
 
         # Sort by orthogonal axis
@@ -482,7 +451,7 @@ class BeadScan:
         dists_sorted = dists[sort_idx]
         heights_sorted = heights[sort_idx]
 
-        interp = interp1d(dists_sorted, heights_sorted, kind='linear', fill_value="extrapolate")
+        interp = interp1d(dists_sorted, heights_sorted, kind='linear', fill_value='extrapolate')
         profile_x = np.arange(dists_sorted.min(), dists_sorted.max(), resolution)
         profile_z = interp(profile_x)
 
@@ -497,17 +466,18 @@ class BeadScan:
         line_y = ransac.predict(X)
 
         # Compute area between profile and fitted line
-        area = simps(profile_z - line_y, profile_x)
+        area = simpson(profile_z - line_y, profile_x)
         area = max(area, 0.0)
 
         if visualize:
             if self.verbose:
-                print(len(profile_x), "points in profile")
-                print(f"Computed area: {area:.3f} mm^2")
+                print(len(profile_x), 'points in profile')
+                print(f'Computed area: {area:.3f} mm^2')
             self._plot_profile_area(profile_x, profile_z, index=index, ransac_line=line_y, save_vis=save_vis)
             if save_vis:
-                self._plot_profile_search_region(slice_points, scan_points,
-                                                 base_threshold = 0.3,index = index, save_vis=save_vis)
+                self._plot_profile_search_region(
+                    slice_points, scan_points, base_threshold=0.3, index=index, save_vis=save_vis
+                )
             else:
                 plt.pause(0.1)
                 plt.close()
@@ -515,54 +485,42 @@ class BeadScan:
         return profile_x, profile_z, line_y, area
 
     def _plot_profile_area(self, profile_x, profile_z, index=None, ransac_line=None, save_vis=False):
-        """
-        Plot the profile and shaded area under the curve.
-
-        Parameters:
-            profile_x : (K,) array
-                Distance along slice axis.
-            profile_z : (K,) array
-                Height values of slice.
-            area : float
-                Area under the profile curve.
-        """
+        """Plot the profile and shaded area under the curve."""
         plt.figure()
         plt.xlim(-1, 3)
         plt.ylim(-0.1, 2.0)
 
         plt.gca().set_aspect('equal', adjustable='box')
 
-
-
         plt.plot(profile_x, profile_z, '-k', label='Profile')
         if ransac_line is not None:
             plt.plot(profile_x, ransac_line, '--r', label='RANSAC floor')
             plt.fill_between(profile_x, ransac_line, profile_z, color='gray', alpha=0.5, label='Area')
-        plt.xlabel("Distance along slice [mm]")
-        plt.ylabel("Height [mm]")
+        plt.xlabel('Distance along slice [mm]')
+        plt.ylabel('Height [mm]')
         if index is not None:
-            plt.title(f"Profile Slice at Toolpath Index {index}")
+            plt.title(f'Profile Slice at Toolpath Index {index}')
         else:
-            plt.title(f"Profile at Toolpath Slice")
+            plt.title('Profile at Toolpath Slice')
         plt.grid(True)
         plt.legend()
         plt.show()
 
         if save_vis:
             if index is not None:
-                plt.savefig(self._filename[:-4]+f"_profile_slice_index_{index}.png", dpi=600)
+                plt.savefig(self._filename[:-4] + f'_profile_slice_index_{index}.png', dpi=600)
                 if self.verbose:
-                    print(f"Profile slice saved as '" + self._filename[:-4] + "_profile_slice_index_{index}.png'")
+                    print("Profile slice saved as '" + self._filename[:-4] + "_profile_slice_index_{index}.png'")
                 plt.pause(0.1)
                 plt.close()
             else:
-                plt.savefig(self._filename[:-4]+"_profile_slice.png", dpi=600)
+                plt.savefig(self._filename[:-4] + '_profile_slice.png', dpi=600)
                 if self.verbose:
                     print("Profile slice saved as '" + self._filename[:-4] + "_profile_slice.png'")
                 plt.pause(0.1)
                 plt.close()
 
-    def _plot_profile_search_region(self, slice_points, scan_points, base_threshold = 0.3, index=None, save_vis=False):
+    def _plot_profile_search_region(self, slice_points, scan_points, base_threshold=0.3, index=None, save_vis=False):
         # plot the slice points on top of the scan points plot using o3d
         pcd_slice = o3d.geometry.PointCloud()
         pcd_slice.points = o3d.utility.Vector3dVector(slice_points)
@@ -574,11 +532,13 @@ class BeadScan:
 
         pcd_scan_base = o3d.geometry.PointCloud()
         pcd_scan_base.points = o3d.utility.Vector3dVector(
-            self.points_flattened[self.valid_mask][self.points_flattened[self.valid_mask][:, 2] < base_threshold])
+            self.points_flattened[self.valid_mask][self.points_flattened[self.valid_mask][:, 2] < base_threshold]
+        )
 
         pcd_scan_bead = o3d.geometry.PointCloud()
         pcd_scan_bead.points = o3d.utility.Vector3dVector(
-            self.points_flattened[self.valid_mask][self.points_flattened[self.valid_mask][:, 2] >= base_threshold])
+            self.points_flattened[self.valid_mask][self.points_flattened[self.valid_mask][:, 2] >= base_threshold]
+        )
 
         pcd_scan_base.paint_uniform_color([0.6, 0.6, 0.6])  # Dark gray: base
         pcd_scan_bead.paint_uniform_color([0.2, 0.2, 0.2])  # Green: bead
@@ -604,25 +564,34 @@ class BeadScan:
         if save_vis:
             if index is not None:
                 # o3d.io.write_point_cloud(f"slice_region_index_{index}.ply", pcd_slice)
-                vis.capture_screen_image(self._filename[:-4]+f"_slice_region_index_{index}.png", do_render=True)
+                vis.capture_screen_image(self._filename[:-4] + f'_slice_region_index_{index}.png', do_render=True)
                 vis.destroy_window()
 
                 if self.verbose:
-                    print(f"Slice region saved as '" + self._filename[:-4] + "_slice_region_index_{index}.png'")
+                    print("Slice region saved as '" + self._filename[:-4] + "_slice_region_index_{index}.png'")
             else:
                 # o3d.io.write_point_cloud("slice_region.ply", pcd_slice)
-                vis.capture_screen_image(self._filename[:-4]+"_slice_region.png", do_render=True)
+                vis.capture_screen_image(self._filename[:-4] + '_slice_region.png', do_render=True)
                 vis.destroy_window()
 
                 if self.verbose:
                     print("Slice region saved as '" + self._filename[:-4] + "_slice_region.ply'")
 
-    def get_all_profile_areas(self, toolpath_points, scan_points,
-                              width=0.0, resolution=0.0, index_override = [0,0], visualize=False, save_vis=False):
+    def get_all_profile_areas(
+        self,
+        toolpath_points,
+        scan_points,
+        width=0.0,
+        resolution=0.0,
+        index_override=None,
+        visualize=False,
+        save_vis=False,
+    ):
         """
         Compute the area under the profile curve for each toolpath index.
 
-        Parameters:
+        Parameters
+        ----------
             toolpath_points : (N, 3) array
                 Aligned toolpath coordinates (after ICP).
             scan_points : (M, 3) array
@@ -631,12 +600,23 @@ class BeadScan:
                 Half-width of the slice band [mm].
             resolution : float
                 Interpolation spacing for profile [mm].
+            index_override : list of int [start, end]
+                Optional override for the range of toolpath indices to process. If [0, 0], uses all indices.
             visualize : bool
                 Whether to show the slice profiles.
+            save_vis : bool
+                Whether to save the slice profile visualizations.
 
-        Returns:
+        Returns
+        -------
+            profile_xs : list of (K,) arrays
+                List of distance along slice axis for each profile.
+            profile_zs : list of (K,) arrays
+                List of height values of slice for each profile.
+            ransac_lines : list of (K,) arrays
             areas : list of float
                 List of areas under the profile curves for each toolpath index.
+
         """
         # generate a profile_x, profile_z, and area for each toolpath index, and do a lil status bar in the console
         profile_xs = []
@@ -644,17 +624,27 @@ class BeadScan:
         ransac_lines = []
         areas = []
 
-        if index_override[0] == 0 and index_override[1] == 0:
-            # If no index override, use all indices
-            indices = range(len(toolpath_points))
-        else:
-            # If index override is provided, use the specified range
-            indices = range(index_override[0], index_override[1])
+        # if index_override is None:
+        #     # If no index override, use all indices
+        #     indices = range(len(toolpath_points))
+        # else:
+        #     # If index override is provided, use the specified range
+        #     indices = range(index_override[0], index_override[1])
 
-        for i in tqdm(indices, desc="Extracting profiles"):
-            px, pz, rl, a = self.extract_profile(toolpath_points, scan_points, index=i,
-                                                     width = width, resolution = resolution,
-                                                     visualize=visualize, save_vis=save_vis)
+        indices = indices = (
+            range(len(toolpath_points)) if index_override is None else range(index_override[0], index_override[1])
+        )
+
+        for i in tqdm(indices, desc='Extracting profiles'):
+            px, pz, rl, a = self.extract_profile(
+                toolpath_points,
+                scan_points,
+                index=i,
+                width=width,
+                resolution=resolution,
+                visualize=visualize,
+                save_vis=save_vis,
+            )
             profile_xs.append(px)
             profile_zs.append(pz)
             ransac_lines.append(rl)
@@ -666,38 +656,45 @@ class BeadScan:
         """
         Compute the flow rate as a function of time, based on the areas and bead slice thickness.
 
-        Parameters:
+        Parameters
+        ----------
             areas : list of float
                 List of areas under the profile curves for each toolpath index.
-            scan_speed : float
-                Speed of the scan [mm/s]. If None, uses self.scan_speed.
+            visualize : bool
+                    Whether to show the flow rate visualization.
+            save_vis : bool
+                Whether to save the flow rate visualization.
 
-        Returns:
-            flowrate : float
+        Returns
+        -------
+            flowrates : float
                 Flow rate in mm^3/s.
-        """
+            volumes : float
+                Volume in mm^3.
 
+
+        """
         # check that self.time is constant intervals (eg, 0.1s steps)
         t = self.time_scan
         test0 = np.round(t[1:] - t[:-1], 6)
         dt = np.mean(test0)
         test1 = test0 == dt  # check if all time steps are equal
         if not test1.all():
-            print("Warning. Hard check failed! Inconsistent time steps detected")
+            print('Warning. Hard check failed! Inconsistent time steps detected')
         else:
             if self.verbose:
-                print("Hard check passed: Consistent time steps is completely enforced")
+                print('Hard check passed: Consistent time steps is completely enforced')
         test2 = test0 - dt < 0.01 * dt
         test3 = np.all(test2)
-        assert test3, "Soft check also failed! Time steps are not consistent enough"
+        assert test3, 'Soft check also failed! Time steps are not consistent enough'
         if self.verbose:
-            print("Soft check passed: Consistent time steps is mostly enforced")
+            print('Soft check passed: Consistent time steps is mostly enforced')
 
-        dt = np.round(np.diff(t),6)  # s
+        dt = np.round(np.diff(t), 6)  # s
         dt = np.append(dt, dt[-1])  # make sure dt is the same length as areas
 
         areas_clean = np.array(areas)  # mm^2
-        areas_clean[areas_clean == None] = 0
+        areas_clean[areas_clean is None] = 0
         volumes = areas_clean * self.slice_thickness  # mm^3
         flowrates = volumes / dt  # mm^3/s
 
@@ -710,11 +707,15 @@ class BeadScan:
         """
         Plot the flow rates and volumes over time.
 
-        Parameters:
+        Parameters
+        ----------
             flowrates : list of float
                 Flow rates in mm^3/s.
             volumes : list of float
                 Volumes in mm^3.s
+            save_vis : bool
+                Whether to save the flow rates visualization.
+
         """
         t = self.time_print
         plt.figure(figsize=(12, 6))
@@ -738,17 +739,27 @@ class BeadScan:
         plt.show()
 
         if save_vis:
-            plt.savefig(self._filename[:-4]+'_volumes_flowrates.png', dpi=600)
+            plt.savefig(self._filename[:-4] + '_volumes_flowrates.png', dpi=600)
             if self.verbose:
                 print("Flow rates plot saved as '" + self._filename[:-4] + "_volumes_flowrates.png'")
 
-
-    def save_results(self, flowrates = None, volumes = None, areas = None, scan_points = None,
-                            profile_xs = None, profile_zs = None, ground_lines = None,
-                            output_folderpath = 'data', output_filename = None):
+    def save_results(
+        self,
+        flowrates=None,
+        volumes=None,
+        areas=None,
+        scan_points=None,
+        profile_xs=None,
+        profile_zs=None,
+        ground_lines=None,
+        output_folderpath='data',
+        output_filename=None,
+    ):
         """
         Save the results to a CSV file.
-        Parameters:
+
+        Parameters
+        ----------
             flowrates : list of float
                 Flow rates in mm^3/s.
             volumes : list of float
@@ -763,8 +774,11 @@ class BeadScan:
                 List of height values of slice for each profile.
             ground_lines : list of (K,) arrays
                 List of ground line values for each profile.
+            output_folderpath : str
+                Path to the folder where the output CSV file will be saved.
             output_filename : str
                 Name of the output CSV file.
+
         """
         saved_names = []
         saved_items = []
@@ -787,7 +801,7 @@ class BeadScan:
 
         if areas is not None:
             areas_clean = np.array(areas)
-            areas_clean[areas_clean == None] = np.nan
+            areas_clean[areas_clean is None] = np.nan
             saved_names.append('areas')
             saved_items.append(areas_clean)
 
@@ -807,31 +821,29 @@ class BeadScan:
 
         if len(saved_items) == 0:
             if self.verbose:
-                print("No data provided to save.")
+                print('No data provided to save.')
             return
+        if output_filename is not None:
+            # self._filename = output_filename + '.csv'
+            full_filepath = f'{output_folderpath}/{output_filename.rsplit(".", maxsplit=1)[0]}.npz'
         else:
-            if output_filename is not None:
-                # self._filename = output_filename + '.csv'
-                full_filepath = f"{output_folderpath}/{output_filename.rsplit('.', maxsplit=1)[0]}.npz"
-            else:
-                full_filepath = f"{output_folderpath}/{self._filename.replace('.csv','')}.npz"
+            full_filepath = f'{output_folderpath}/{self._filename.replace(".csv", "")}.npz'
 
-            # np.savez_compressed('data/' + filename.replace('.csv', '_results.npz'),
-            #                     t=beadscan.time, q=flowrates)
+        # np.savez_compressed('data/' + filename.replace('.csv', '_results.npz'),
+        #                     t=beadscan.time, q=flowrates)
 
-            # Save to compresed npz file
-            np.savez_compressed(full_filepath, **{name: item for name, item in zip(saved_names, saved_items)})
-            if self.verbose:
-                # list which items were saved in a print statement
-                print(f"Results saved to '{full_filepath}' with the following items:")
-                for name in saved_names:
-                    print(f"- {name}")
+        # Save to compresed npz file
+        np.savez_compressed(full_filepath, **{name: item for name, item in zip(saved_names, saved_items)})
+
+        if self.verbose:
+            # list which items were saved in a print statement
+            print(f"Results saved to '{full_filepath}' with the following items:")
+            for name in saved_names:
+                print(f'- {name}')
 
 
-if __name__ == "__main__":
-
-    # %% user parameters
-
+# %%
+if __name__ == '__main__':
     # m_static_naive use cycle 1
     # m_static_ideal use cycle 1
     # m_VBN_2 use cycle 2
@@ -839,24 +851,23 @@ if __name__ == "__main__":
     # sealant_static use cycle 3
     # sealant_VBN use cycle 1
 
-    demo = 'sealant'
-    type = 'VBN'
-    cycle = 1
+    demo = 'm'
+    nozzle = 'VBN_03'
+    cycle = 2
     folderpath = 'demos'
 
     # filename = 'm_static_naive_cycle_002.csv'
     # toolname = 'm_static_naive.csv'
 
-    filename = f'{demo}_{type}_cycle_{cycle:03d}.csv'
-    toolname = f'{demo}_{type}.csv'
+    filename = f'{demo}_{nozzle}_cycle_{cycle:03d}.csv'
+    toolname = f'{demo}_{nozzle}.csv'
     scan_speed = 5.0  # mm/s
-    print_speed = 2.5  # mm/s
+    print_speed = 0.995  # mm/s
 
     visualize = True
-    save_vis = True
+    save_vis = False
     save_data = False
-    verbose_prints = False
-
+    verbose_prints = True
 
     if save_vis:
         visualize = True
@@ -867,7 +878,6 @@ if __name__ == "__main__":
     toolpath_aligned, toolpath_transform = beadscan.register_toolpath_to_scan(visualize=visualize, save_vis=save_vis)
 
     scan_points = beadscan.points_flattened[beadscan.valid_mask]  # Use only valid points from flattened scan
-
 
     # %% run all profiles for a single bead scan
 

@@ -8,3 +8,7 @@ src/.DS_Store
 src/constants/__pycache__/plotting.cpython-311.pyc
 .idea/other.xml
 *.npz
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
