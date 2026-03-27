@@ -10,18 +10,19 @@ This document explains every algorithm, statistical method, and computational te
 2. [Data Loading & Point Cloud Construction](#2-data-loading--point-cloud-construction)
 3. [RANSAC Plane Fitting & Bed Flattening](#3-ransac-plane-fitting--bed-flattening)
 4. [Bed/Bead Segmentation](#4-beadbead-segmentation)
-5. [FPFH Feature Descriptors](#5-fpfh-feature-descriptors)
-6. [RANSAC Global Registration](#6-ransac-global-registration)
-7. [Point-to-Plane ICP Refinement](#7-point-to-plane-icp-refinement)
-8. [Signed Distance Computation](#8-signed-distance-computation)
-9. [Deviation Metrics](#9-deviation-metrics)
-10. [Kolmogorov-Smirnov Test](#10-kolmogorov-smirnov-test)
-11. [Kernel Density Estimation (KDE)](#11-kernel-density-estimation-kde)
-12. [Visualization Methods](#12-visualization-methods)
-13. [Caching & Batch Processing](#13-caching--batch-processing)
-14. [How Everything Connects](#14-how-everything-connects)
-15. [Key Parameters & Sensitivities](#15-key-parameters--sensitivities)
-16. [Further Reading](#16-further-reading)
+5. [Floor Augmentation for Thin Geometry](#5-floor-augmentation-for-thin-geometry)
+6. [FPFH Feature Descriptors](#6-fpfh-feature-descriptors)
+7. [RANSAC Global Registration](#7-ransac-global-registration)
+8. [Point-to-Plane ICP Refinement](#8-point-to-plane-icp-refinement)
+9. [Signed Distance Computation](#9-signed-distance-computation)
+10. [Deviation Metrics](#10-deviation-metrics)
+11. [Kolmogorov-Smirnov Test](#11-kolmogorov-smirnov-test)
+12. [Kernel Density Estimation (KDE)](#12-kernel-density-estimation-kde)
+13. [Visualization & Output Methods](#13-visualization--output-methods)
+14. [Caching & Batch Processing](#14-caching--batch-processing)
+15. [How Everything Connects](#15-how-everything-connects)
+16. [Key Parameters & Sensitivities](#16-key-parameters--sensitivities)
+17. [Further Reading](#17-further-reading)
 
 ---
 
@@ -40,15 +41,19 @@ Raw laser scan (CSV)          CAD model (STL)
        |                            |
   [Segment bed from bead]           |
        |                            |
+  [Augment bead with synthetic floor]  ← registration only
+       |                            |
   [FPFH features → RANSAC global registration]
        |                            |
   [Point-to-plane ICP refinement]   |
+       |                            |
+  [Apply transform to real bead points only]
        |                            |
   [Signed distance computation] ----+
        |
   [Metrics: RMSD, MSD, volume, KS test]
        |
-  [Visualization: deviation maps, KDE, boxplots]
+  [Visualization: deviation maps, KDE, boxplots, STL export]
 ```
 
 Each stage is independently cacheable and inspectable.
@@ -138,7 +143,37 @@ This provides a clean separation in the typical case. The RANSAC plane fitting i
 
 ---
 
-## 5. FPFH Feature Descriptors
+## 5. Floor Augmentation for Thin Geometry
+
+### The problem
+
+The laser scan only captures the *top* surface of the printed bead. The CAD mesh, however, is a closed solid with a top face, a bottom face, and side edges. This mismatch causes a fundamental difficulty for FPFH feature matching: when computing descriptors on the scan, almost every point has the same neighborhood geometry — flat surface, normal pointing straight up. There is very little to distinguish one part of the scan from another, resulting in very few valid feature correspondences (Open3D warns "Too few correspondences after mutual filter").
+
+### Solution: synthetic floor points
+
+After segmentation, we project the bead's XY footprint down to Z = 0 (the bed level) to create a synthetic bottom face:
+
+```
+bead_points:   original top-surface scan points   Z ≈ 0.2–0.6 mm
+floor_points:  same XY, forced to Z = 0           Z = 0.0 mm
+augmented:     vstack([bead_points, floor_points]) ~2M points
+```
+
+The augmented cloud is then used for FPFH feature computation, RANSAC global registration, and ICP refinement. After voxel downsampling, the boundary between the top surface (normals up) and the floor (normals down) creates sharp edges with highly distinctive FPFH signatures — exactly the geometric contrast needed for reliable feature matching. Corners of the "M" become especially distinctive since two perpendicular edges meet there.
+
+### Why the floor points are valid for registration but not for metrics
+
+The floor points represent a reasonable physical assumption: the bottom of the bead really does contact the bed at Z = 0. They are geometrically faithful enough to improve the alignment transform.
+
+However, they are intentionally excluded from distance computation and deviation metrics. Including them would artificially deflate RMSD, MAE, and other metrics, because each floor point would have ~0 signed distance (it sits exactly where the CAD bottom face is). With ~1M synthetic points alongside ~1M real measurements, every metric would roughly halve — not because the print improved, but because we injected "perfect" data. The bottom surface is also physically unobservable by the laser (it's pressed into the bed), so it may have real defects (elephant foot, adhesion artifacts) that we cannot measure.
+
+**The separation is clean:** `register_scan_to_cad()` accepts `bead_points`, uses the augmented cloud internally for registration, and returns only the 4×4 transform. The caller applies that transform to the original `bead_points` for all downstream work.
+
+**Config toggle:** `RegistrationConfig.augment_with_floor = True` (default). Set to `False` to compare registration quality with and without augmentation.
+
+---
+
+## 6. FPFH Feature Descriptors
 
 ### The problem
 
@@ -195,7 +230,7 @@ Two additional checks reject geometrically inconsistent correspondences before R
 
 **Output:** A 4×4 homogeneous transformation matrix that coarsely aligns the scan to the CAD. This gets the scan into roughly the right position/orientation but isn't precise enough for distance computation.
 
-**Note on "too few correspondences" warning:** The Open3D warning about falling back from mutual filter means that very few FPFH matches survived the strict mutual-nearest-neighbor filter. This is expected for thin, mostly-flat geometry like a single-layer print — there isn't much 3D surface variation for FPFH to distinguish. The registration still works because RANSAC only needs a few correct correspondences.
+**Note on "too few correspondences" warning:** The Open3D warning about falling back from mutual filter means that very few FPFH matches survived the strict mutual-nearest-neighbor filter. This was a significant problem before floor augmentation was added — with only the thin top surface, almost every point looked like "flat surface, normal up." The synthetic floor (§5) resolves this by adding geometric contrast at the bead perimeter edges, producing many more valid correspondences.
 
 **Further reading:** Same as RANSAC above (Fischler & Bolles, 1981), applied in the context of Rusu et al.'s feature-based registration framework.
 
@@ -412,7 +447,7 @@ The x-axis is signed deviation (mm), the y-axis is probability density. Each cur
 
 ---
 
-## 12. Visualization Methods
+## 13. Visualization & Output Methods
 
 ### Spatial Deviation Maps
 
@@ -442,9 +477,22 @@ The dashed line at zero shows the "perfect" baseline. A box centered on zero = u
 
 A matplotlib-rendered table formatted for direct inclusion in a paper or supplementary materials. Shows all numerical metrics in a compact tabular format.
 
+### STL Export of Scan Point Clouds
+
+The pipeline can export the segmented bead point cloud as an STL mesh file at two stages of processing:
+
+- **Pre-registration (`*_bead_scan.stl`):** Bead points in the flattened/segmented coordinate frame, before alignment to the CAD. Useful for inspecting raw scan quality and verifying segmentation.
+- **Post-registration (`*_bead_aligned.stl`):** Bead points after the FPFH + ICP transform has been applied, in the CAD coordinate frame. Can be directly overlaid with the CAD STL in any 3D viewer (MeshLab, Blender, etc.) to visually verify registration quality.
+
+**Meshing method — 2D Delaunay triangulation:** Since the scan data is a 2.5D height map (one Z value per XY location), we triangulate on the XY plane and use Z as vertex height. This is more appropriate than Poisson reconstruction or ball-pivot algorithms, which are designed for true 3D point clouds with arbitrary surface orientations.
+
+**Delaunay triangulation** finds the triangulation of a 2D point set that maximizes the minimum angle of all triangles (avoiding very thin, elongated triangles). Formally, it guarantees that no point lies inside the circumcircle of any triangle. On a regular or near-regular grid like our raster scan, this produces a clean mesh of approximately equilateral triangles.
+
+**Long-edge filtering (`max_edge_length`):** The Delaunay triangulation will connect all points in the convex hull, including long triangles that span the gaps between strokes of the "M." The `max_edge_length` parameter (default 0.5 mm, about 25× the scan resolution) removes any triangle with an edge longer than this threshold, preventing spurious spanning faces across physically separate bead strokes.
+
 ---
 
-## 13. Caching & Batch Processing
+## 14. Caching & Batch Processing
 
 ### NPZ Caching
 
@@ -467,7 +515,7 @@ The batch system iterates over multiple methods and scans, running the full pipe
 
 ---
 
-## 14. How Everything Connects
+## 15. How Everything Connects
 
 Here's the complete data flow with method connections:
 
@@ -515,7 +563,19 @@ Here's the complete data flow with method connections:
            │  • Z ≤ 0.15mm → bed  │
            └──────────┬──────────┘
                       │
-              bead_points (~1M, 3)
+              bead_points (~1M, 3)   ← kept for metrics
+                      │
+           ┌──────────┴──────────┐
+           │  FLOOR AUGMENTATION  │
+           │  registration.py     │
+           │                      │
+           │  • Copy bead XY      │
+           │  • Set Z = 0 (bed)   │
+           │  • Stack top+bottom  │
+           │  • Registration only │
+           └──────────┬──────────┘
+                      │
+              augmented (~2M, 3)    ← registration only
                       │
            ┌──────────┴──────────────────────────────┐
            │   COARSE REGISTRATION                    │
@@ -558,7 +618,8 @@ Here's the complete data flow with method connections:
            │                      │
            │  aligned_bead =      │
            │    T × bead_points   │
-           │  (homogeneous mult)  │
+           │  (real points only,  │
+           │   floor discarded)   │
            └──────────┬──────────┘
                       │
               aligned_bead (~1M, 3)
@@ -580,23 +641,24 @@ Here's the complete data flow with method connections:
                       │
               signed_distances (~1M,)
                       │
-        ┌─────────────┼─────────────────┐
-        │             │                 │
-  ┌─────┴─────┐ ┌────┴────┐  ┌────────┴────────┐
-  │  METRICS   │ │  KS     │  │ VISUALIZATION   │
-  │            │ │  TEST   │  │                 │
-  │  RMSD      │ │         │  │ • Spatial maps  │
-  │  MSD       │ │ Compare │  │   (pyvista)     │
-  │  MAE       │ │ pairs   │  │ • KDE overlay   │
-  │  95th %    │ │ of      │  │   (scipy+mpl)   │
-  │  Max       │ │ methods │  │ • Boxplots      │
-  │  Volumes   │ │ (scipy) │  │   (matplotlib)  │
-  └────────────┘ └─────────┘  └─────────────────┘
+        ┌─────────────┼──────────────────────┐
+        │             │                      │
+  ┌─────┴─────┐ ┌────┴────┐  ┌─────────────┴──────────────┐
+  │  METRICS   │ │  KS     │  │ VISUALIZATION & EXPORT      │
+  │            │ │  TEST   │  │                             │
+  │  RMSD      │ │         │  │ • Spatial deviation maps    │
+  │  MSD       │ │ Compare │  │   (pyvista, RdBu_r)         │
+  │  MAE       │ │ pairs   │  │ • KDE overlay (scipy+mpl)   │
+  │  95th %    │ │ of      │  │ • Boxplots (matplotlib)     │
+  │  Max       │ │ methods │  │ • Metrics table PNG + CSV   │
+  │  Volumes   │ │ (scipy) │  │ • STL mesh export           │
+  └────────────┘ └─────────┘  │   (Delaunay, loader.py)    │
+                               └────────────────────────────┘
 ```
 
 ---
 
-## 15. Key Parameters & Sensitivities
+## 16. Key Parameters & Sensitivities
 
 | Parameter | Value | What it controls | Sensitivity |
 |-----------|-------|-----------------|-------------|
@@ -609,12 +671,14 @@ Here's the complete data flow with method connections:
 | `fpfh_radius_feature` | 2.5 mm | Neighborhood for feature computation | Moderate — should be ~5× voxel size. Larger captures more context but loses local detail |
 | `ransac_max_iterations` | 4M | Iterations for global registration | Low — more iterations = more likely to find correct alignment but slower |
 | `icp_threshold` | 0.1 mm | Max correspondence distance for ICP | **High** — too small rejects valid correspondences. Too large allows wrong matches to influence alignment |
+| `augment_with_floor` | True | Add synthetic floor for registration | Low on metrics (floor points never used for distances). Significant effect on registration quality for thin geometry — disabling it risks poor FPFH matches |
+| `max_edge_length` (STL) | 0.5 mm | Long-edge filter for STL meshing | Moderate — controls which spanning triangles are removed. Too small removes valid triangles at sharp corners; too large keeps artifacts across bead gaps |
 | `clim` | ±0.3 mm | Color scale for deviation maps | Visual only — affects interpretation. Should be consistent across all methods for fair comparison |
 | `percentile` | 95% | Which percentile for worst-case metric | Low — 95% is standard; 99% would be more conservative |
 
 ---
 
-## 16. Further Reading
+## 17. Further Reading
 
 ### Point Cloud Registration
 - **ICP:** Besl & McKay, "A Method for Registration of 3-D Shapes," *IEEE PAMI*, 1992.
