@@ -242,6 +242,25 @@ if RUN_STAGE_5_SEGMENT:
     ax.set_title("Stage 5: Side view (X-Z)")
     ax.legend(markerscale=20)
     _show_or_save(fig, "stage5_segmentation_sideview")
+    # Save bead points as STL
+    print("\n  Saving bead points as STL...")
+    import open3d as o3d
+    from deviation_analysis.loader import save_points_as_stl
+
+    stl_out = save_points_as_stl(
+        bead_points,
+        OUTPUT_DIR / "stage5_bead_scan.stl",
+        max_edge_length=0.5,
+    )
+    print(f"  -> Saved bead STL: {stl_out}")
+    print(f"     Vertices: {len(bead_points):,}")
+
+    # Verify it loads back
+    reload_mesh = o3d.io.read_triangle_mesh(str(stl_out))
+    n_verts = len(np.asarray(reload_mesh.vertices))
+    n_tris = len(np.asarray(reload_mesh.triangles))
+    print(f"     Reload check: {n_verts:,} vertices, {n_tris:,} triangles")
+
 else:
     print("\n  [Stage 5 skipped]")
 

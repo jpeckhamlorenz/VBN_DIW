@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import open3d as o3d
 from scipy.interpolate import interp1d
+from scipy.spatial import Delaunay
 
 from deviation_analysis.config import ScanConfig
 
@@ -204,3 +205,65 @@ def load_cad_mesh(filepath: Path) -> o3d.geometry.TriangleMesh:
     mesh = o3d.io.read_triangle_mesh(str(filepath))
     mesh.compute_vertex_normals()
     return mesh
+
+
+def save_points_as_stl(
+    points: np.ndarray,
+    output_path: Path,
+    max_edge_length: float | None = None,
+) -> Path:
+    """Save a point cloud as an STL mesh using 2D Delaunay triangulation.
+
+    The scan data is essentially a 2.5D height map (one Z per XY location),
+    so we triangulate on the XY plane and use the Z values as vertex heights.
+    This produces a clean surface mesh without the artifacts of Poisson or
+    ball-pivot reconstruction.
+
+    Optionally filters out triangles with edges longer than
+    ``max_edge_length`` to avoid large triangles spanning gaps in the data
+    (e.g., between separate strokes of the letter M).
+
+    Parameters
+    ----------
+    points
+        (N, 3) array of XYZ coordinates. Should contain only valid points
+        (no NaNs).
+    output_path
+        Where to write the binary STL file.
+    max_edge_length
+        If provided, triangles with any edge longer than this value (in mm)
+        are removed.  A good default for typical scan data is ~0.5 mm
+        (about 5-10× the scan resolution).
+
+    Returns
+    -------
+    Path
+        The path the STL was written to.
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 2D Delaunay on XY projection
+    tri = Delaunay(points[:, :2])
+    faces = tri.simplices  # (F, 3) triangle vertex indices
+
+    # Optionally filter long-edge triangles (removes spanning artifacts)
+    if max_edge_length is not None:
+        keep = np.ones(len(faces), dtype=bool)
+        for i, face in enumerate(faces):
+            v0, v1, v2 = points[face]
+            e0 = np.linalg.norm(v1 - v0)
+            e1 = np.linalg.norm(v2 - v1)
+            e2 = np.linalg.norm(v0 - v2)
+            if max(e0, e1, e2) > max_edge_length:
+                keep[i] = False
+        faces = faces[keep]
+
+    # Build Open3D mesh and save
+    mesh = o3d.geometry.TriangleMesh()
+    mesh.vertices = o3d.utility.Vector3dVector(points)
+    mesh.triangles = o3d.utility.Vector3iVector(faces)
+    mesh.compute_vertex_normals()
+
+    o3d.io.write_triangle_mesh(str(output_path), mesh)
+    return output_path

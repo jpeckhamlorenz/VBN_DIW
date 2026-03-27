@@ -42,6 +42,7 @@ from deviation_analysis.loader import (
     load_scan_csv,
     load_toolpath_csv,
     raster_to_point_cloud,
+    save_points_as_stl,
 )
 from deviation_analysis.registration import (
     flatten_point_cloud,
@@ -63,6 +64,7 @@ from deviation_analysis.visualization import (
 DATA_DIR = Path("demos/m")
 STL_FILE = DATA_DIR / "m_ideal.stl"
 OUTPUT_DIR = Path("deviation_analysis/output/comparison")
+STL_OUTPUT_DIR = OUTPUT_DIR / "scan_stls"
 
 # Each entry: (display_name, scan_cycle_csv, toolpath_csv)
 # Change these to compare different scans or methods.
@@ -335,6 +337,38 @@ def generate_figures(results: dict[str, MethodResult]) -> None:
     print(f"\nAll outputs in: {OUTPUT_DIR}/")
 
 
+def save_scan_stls(results: dict[str, MethodResult]) -> None:
+    """Save bead point clouds as STL meshes for each method.
+
+    Saves two STL files per method:
+    - *_bead_scan.stl:    bead points in the flattened/segmented frame
+    - *_bead_aligned.stl: bead points registered to the CAD frame
+    """
+    STL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    print("Saving scan STL meshes...")
+
+    for name, r in results.items():
+        safe_name = r.scan_csv.replace(".csv", "")
+
+        # Bead in scan frame (post-segmentation, pre-registration)
+        path_scan = save_points_as_stl(
+            r.bead_points,
+            STL_OUTPUT_DIR / f"{safe_name}_bead_scan.stl",
+            max_edge_length=0.5,
+        )
+        print(f"  -> {path_scan}  ({len(r.bead_points):,} pts)")
+
+        # Bead aligned to CAD frame (post-registration)
+        path_aligned = save_points_as_stl(
+            r.aligned_bead,
+            STL_OUTPUT_DIR / f"{safe_name}_bead_aligned.stl",
+            max_edge_length=0.5,
+        )
+        print(f"  -> {path_aligned}  ({len(r.aligned_bead):,} pts)")
+
+    print(f"\nSTL files in: {STL_OUTPUT_DIR}/")
+
+
 # ============================================================================
 #  MAIN
 # ============================================================================
@@ -368,6 +402,9 @@ if __name__ == "__main__":
 
     # Generate figures
     generate_figures(results)
+
+    # Save bead scans as STL meshes
+    save_scan_stls(results)
 
     # -----------------------------------------------------------------
     # At this point, everything is available for interactive exploration:
