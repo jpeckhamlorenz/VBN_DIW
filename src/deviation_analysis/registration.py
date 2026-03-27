@@ -187,6 +187,50 @@ def segment_bed_from_bead(
     return bead_points, bed_points, bead_mask
 
 
+def augment_bead_with_floor(
+    bead_points: np.ndarray,
+    floor_z: float = 0.0,
+) -> np.ndarray:
+    """Add synthetic floor points underneath bead points to close the shape.
+
+    The laser scan only captures the top surface of the printed bead, but the
+    CAD mesh is a closed solid with top, bottom, and side faces.  FPFH feature
+    descriptors struggle with thin, open surfaces because every point looks
+    like "flat surface, normal up" — there are no edges or curvature changes
+    to create distinctive signatures.
+
+    By projecting the bead footprint down to the bed plane (Z = 0), we create
+    a synthetic bottom face.  After voxel downsampling, the boundary between
+    top and bottom surfaces produces sharp edges with highly distinctive FPFH
+    features, dramatically improving feature matching.
+
+    These floor points are used **only for registration** (computing the
+    alignment transform).  They are never included in distance computation
+    or deviation metrics.
+
+    Parameters
+    ----------
+    bead_points
+        (M, 3) array of bead surface points (post-segmentation, bed at Z=0).
+    floor_z
+        Z coordinate for the synthetic floor.  Default 0.0 (bed level after
+        flattening).
+
+    Returns
+    -------
+    np.ndarray
+        (M + F, 3) combined array: original bead points on top, floor points
+        appended below.  F ≤ M (may be fewer if voxel deduplication is used).
+    """
+    # Create floor points: same XY as bead, Z = floor_z
+    floor_points = bead_points.copy()
+    floor_points[:, 2] = floor_z
+
+    # Combine: original bead on top, floor appended
+    augmented = np.vstack([bead_points, floor_points])
+    return augmented
+
+
 def compute_fpfh_features(
     pcd: o3d.geometry.PointCloud,
     voxel_size: float,
@@ -375,9 +419,18 @@ def register_scan_to_cad(
             )
         )
 
-    # Create source point cloud from bead points
+    # Optionally augment bead with synthetic floor to improve feature matching
+    # on thin geometry.  The augmented cloud is used for FPFH + RANSAC + ICP
+    # to get a better transform.  The transform is then applied to only the
+    # original bead points downstream (in deviation computation).
+    if config.augment_with_floor:
+        reg_points = augment_bead_with_floor(bead_points, floor_z=0.0)
+    else:
+        reg_points = bead_points
+
+    # Create source point cloud for registration
     source_pcd = o3d.geometry.PointCloud()
-    source_pcd.points = o3d.utility.Vector3dVector(bead_points)
+    source_pcd.points = o3d.utility.Vector3dVector(reg_points)
 
     # Compute FPFH features on downsampled versions of both
     source_down, source_fpfh = compute_fpfh_features(
@@ -398,7 +451,7 @@ def register_scan_to_cad(
         source_down, target_down, source_fpfh, target_fpfh, config
     )
 
-    # Stage 2: ICP refinement (fine) — use full-res source against target
+    # Stage 2: ICP refinement (fine) — use augmented source against target
     source_pcd.estimate_normals(
         o3d.geometry.KDTreeSearchParamHybrid(
             radius=config.fpfh_radius_normal, max_nn=30

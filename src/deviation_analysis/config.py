@@ -69,6 +69,12 @@ class RegistrationConfig:
     icp_max_iterations: int = 200
     """Maximum ICP iterations."""
 
+    # Floor augmentation for thin geometry
+    augment_with_floor: bool = True
+    """Add synthetic floor points (Z=0) under the bead before registration.
+    This closes the open scan surface to better match the closed CAD mesh,
+    giving FPFH features more geometric contrast for thin/flat parts."""
+
 
 @dataclass
 class DeviationConfig:
