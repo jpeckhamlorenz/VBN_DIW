@@ -12,3 +12,4 @@ src/constants/__pycache__/plotting.cpython-311.pyc
 __pycache__/
 .pytest_cache/
 .mypy_cache/
+/src/demos

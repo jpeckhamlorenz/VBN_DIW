@@ -281,7 +281,7 @@ class BeadScan:
             if self.verbose:
                 print("Raw surface plot saved as '" + self._filename[:-4] + "_raw_surface.png'")
 
-    def register_toolpath_to_scan(self, base_threshold=0.3, icp_threshold=0.5, visualize=True, save_vis=False):
+    def register_toolpath_to_scan(self, base_threshold=0.2, icp_threshold=0.5, visualize=True, save_vis=False):
         """Register the toolpath to the scan using ICP."""
         pcd_toolpath = o3d.geometry.PointCloud()
         pcd_toolpath.points = o3d.utility.Vector3dVector(self.toolpath)
@@ -476,7 +476,7 @@ class BeadScan:
             self._plot_profile_area(profile_x, profile_z, index=index, ransac_line=line_y, save_vis=save_vis)
             if save_vis:
                 self._plot_profile_search_region(
-                    slice_points, scan_points, base_threshold=0.3, index=index, save_vis=save_vis
+                    slice_points, scan_points, base_threshold=0.2, index=index, save_vis=save_vis
                 )
             else:
                 plt.pause(0.1)
@@ -520,7 +520,7 @@ class BeadScan:
                 plt.pause(0.1)
                 plt.close()
 
-    def _plot_profile_search_region(self, slice_points, scan_points, base_threshold=0.3, index=None, save_vis=False):
+    def _plot_profile_search_region(self, slice_points, scan_points, base_threshold=0.2, index=None, save_vis=False):
         # plot the slice points on top of the scan points plot using o3d
         pcd_slice = o3d.geometry.PointCloud()
         pcd_slice.points = o3d.utility.Vector3dVector(slice_points)
@@ -852,9 +852,9 @@ if __name__ == '__main__':
     # sealant_VBN use cycle 1
 
     demo = 'm'
-    nozzle = 'VBN_03'
-    cycle = 2
-    folderpath = 'demos'
+    nozzle = 'VBN_05'
+    cycle = 1
+    folderpath = 'demos/m'
 
     # filename = 'm_static_naive_cycle_002.csv'
     # toolname = 'm_static_naive.csv'
@@ -867,7 +867,7 @@ if __name__ == '__main__':
     visualize = True
     save_vis = False
     save_data = False
-    verbose_prints = True
+    verbose_prints = False
 
     if save_vis:
         visualize = True
