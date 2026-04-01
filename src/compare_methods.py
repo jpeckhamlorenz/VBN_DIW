@@ -68,8 +68,10 @@ STL_OUTPUT_DIR = OUTPUT_DIR / "scan_stls"
 
 # Each entry: (display_name, scan_cycle_csv, toolpath_csv)
 # Change these to compare different scans or methods.
+# VBN (v5) is the primary method; the rest are baselines.
 METHODS = [
     ("VBN (v5)",       "m_VBN_05_cycle_001.csv",       "m_VBN_05.csv"),
+    ("VBN (v2)",       "m_VBN_2_cycle_002.csv",         "m_VBN_2.csv"),
     ("Static ideal",   "m_static_ideal_cycle_001.csv",  "m_static_ideal.csv"),
     ("Static naive",   "m_static_naive_cycle_001.csv",  "m_static_naive.csv"),
 ]
