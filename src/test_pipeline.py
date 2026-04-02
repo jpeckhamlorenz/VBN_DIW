@@ -42,8 +42,8 @@ SHOW_PLOTS = True  # Set False to only save PNGs and skip interactive display
 
 
 DATA_DIR = Path('demos/m')
-SCAN_CSV = DATA_DIR / 'm_static_naive_cycle_001.csv'
-TOOLPATH_CSV = DATA_DIR / 'm_static_naive.csv'
+SCAN_CSV = DATA_DIR / 'm_VBN_2_cycle_002.csv'
+TOOLPATH_CSV = DATA_DIR / 'm_VBN_2.csv'
 STL_FILE = DATA_DIR / 'm_ideal.stl'
 OUTPUT_DIR = Path('deviation_analysis/output/test')
 CACHE_DIR = Path('deviation_analysis/cache/test')
