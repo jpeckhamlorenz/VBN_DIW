@@ -34,12 +34,28 @@ SHOW_PLOTS = True  # Set False to only save PNGs and skip interactive display
 # ---------------------------------------------------------------------------
 # Paths — adjust if your working directory is different
 # ---------------------------------------------------------------------------
+
+# m_static_naive use cycle 1
+# m_static_ideal use cycle 1
+# m_VBN_2 use cycle 2
+# m_VBN_05 use cycle 1
+
+
 DATA_DIR = Path('demos/m')
-SCAN_CSV = DATA_DIR / 'm_VBN_2_cycle_002.csv'
-TOOLPATH_CSV = DATA_DIR / 'm_VBN_2.csv'
+SCAN_CSV = DATA_DIR / 'm_static_naive_cycle_001.csv'
+TOOLPATH_CSV = DATA_DIR / 'm_static_naive.csv'
 STL_FILE = DATA_DIR / 'm_ideal.stl'
 OUTPUT_DIR = Path('deviation_analysis/output/test')
 CACHE_DIR = Path('deviation_analysis/cache/test')
+
+# Map toolpath stem to display name (must match compare_methods.py METHODS list)
+METHOD_NAMES = {
+    'm_VBN_05': 'VBN (v5)',
+    'm_VBN_2': 'VBN (v2)',
+    'm_static_ideal': 'Static ideal',
+    'm_static_naive': 'Static naive',
+}
+METHOD_NAME = METHOD_NAMES.get(TOOLPATH_CSV.stem, TOOLPATH_CSV.stem)
 
 
 def _separator(stage: int, title: str) -> None:
@@ -470,7 +486,7 @@ if RUN_STAGE_10_VISUALIZE:
 
     vis_config = VisualizationConfig()
 
-    method_name = 'VBN (v5)'
+    method_name = METHOD_NAME
     method_distances = {method_name: signed_distances}
     method_metrics = {method_name: metrics}
 

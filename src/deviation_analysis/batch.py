@@ -103,7 +103,7 @@ def process_single_scan(
         flat_points = cached["flat_points"]
         valid_mask = cached["valid_mask"].astype(bool)
     else:
-        flat_points, rotation, intercept = flatten_point_cloud(points, valid_mask)
+        flat_points, rotation, intercept = flatten_point_cloud(points, valid_mask, random_state=reg_config.random_seed)
         save_cache(
             cache_dir, flat_key,
             flat_points=flat_points,

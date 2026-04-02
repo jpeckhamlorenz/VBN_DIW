@@ -73,6 +73,7 @@ def _rotation_matrix_from_vectors(vec1: np.ndarray, vec2: np.ndarray) -> np.ndar
 
 def fit_ransac_plane(
     points: np.ndarray,
+    random_state: int | None = 42,
 ) -> tuple[np.ndarray, float, np.ndarray]:
     """Fit a plane to a point cloud using RANSAC.
 
@@ -97,7 +98,7 @@ def fit_ransac_plane(
     xy = points[:, :2]
     z = points[:, 2]
 
-    ransac = make_pipeline(PolynomialFeatures(degree=1), RANSACRegressor())
+    ransac = make_pipeline(PolynomialFeatures(degree=1), RANSACRegressor(random_state=random_state))
     ransac.fit(xy, z)
 
     coef = ransac.named_steps["ransacregressor"].estimator_.coef_
@@ -117,6 +118,7 @@ def fit_ransac_plane(
 def flatten_point_cloud(
     points: np.ndarray,
     valid_mask: np.ndarray,
+    random_state: int | None = 42,
 ) -> tuple[np.ndarray, np.ndarray, float]:
     """Apply RANSAC plane fitting and rotation to flatten a scan point cloud.
 
@@ -140,7 +142,7 @@ def flatten_point_cloud(
         Z-intercept subtracted after rotation.
     """
     valid_pts = points[valid_mask]
-    plane_normal, intercept, rotation_matrix = fit_ransac_plane(valid_pts)
+    plane_normal, intercept, rotation_matrix = fit_ransac_plane(valid_pts, random_state=random_state)
 
     # Rotate all points (including invalid ones — their coords are arbitrary but
     # we keep them for index consistency with valid_mask)
@@ -405,6 +407,14 @@ def register_scan_to_cad(
     inlier_rmse : float
         ICP inlier RMSE in mm.
     """
+    # Seed all PRNGs for reproducible registration
+    if config.random_seed is not None:
+        np.random.seed(config.random_seed)
+        try:
+            o3d.utility.random.seed(config.random_seed)
+        except AttributeError:
+            pass  # Open3D < 0.17 lacks this API
+
     # Sample points from CAD mesh to create target point cloud
     # Use Poisson disk sampling for even coverage; fall back to uniform
     num_target_points = max(50_000, len(bead_points) // 2)

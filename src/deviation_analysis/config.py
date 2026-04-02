@@ -75,6 +75,9 @@ class RegistrationConfig:
     This closes the open scan surface to better match the closed CAD mesh,
     giving FPFH features more geometric contrast for thin/flat parts."""
 
+    random_seed: int | None = 42
+    """Random seed for RANSAC operations (sklearn + Open3D). None = non-deterministic."""
+
 
 @dataclass
 class DeviationConfig:
@@ -119,16 +122,16 @@ class MethodSpec:
 class PipelineConfig:
     """Top-level configuration for the deviation analysis pipeline."""
 
-    data_dir: Path = field(default_factory=lambda: Path("src/demos/m"))
+    data_dir: Path = field(default_factory=lambda: Path('src/demos/m'))
     """Directory containing scan CSVs and STL file."""
 
-    output_dir: Path = field(default_factory=lambda: Path("src/deviation_analysis/output"))
+    output_dir: Path = field(default_factory=lambda: Path('src/deviation_analysis/output'))
     """Directory for final figures, tables, and reports."""
 
-    cache_dir: Path = field(default_factory=lambda: Path("src/deviation_analysis/cache"))
+    cache_dir: Path = field(default_factory=lambda: Path('src/deviation_analysis/cache'))
     """Directory for intermediate NPZ cache files."""
 
-    stl_file: str = "m_ideal.stl"
+    stl_file: str = 'm_ideal.stl'
     """Filename of the CAD reference STL (relative to data_dir)."""
 
     scan: ScanConfig = field(default_factory=ScanConfig)
