@@ -27,7 +27,9 @@ from deviation_analysis.loader import (
     load_toolpath_csv,
     points_to_open3d,
     raster_to_point_cloud,
+    save_points_as_stl,
 )
+from deviation_analysis.smoothing import smooth_anisotropic_grid
 from deviation_analysis.registration import (
     flatten_point_cloud,
     register_scan_to_cad,
@@ -82,8 +84,17 @@ def process_single_scan(
     reg_config = config.registration
     point_area = config.scan.resolution * config.scan.slice_thickness
 
+    # Smoothing state affects registration and distance results, so encode
+    # it in the cache suffix to avoid stale hits when toggling use_smoothed.
+    _sc = config.smoothing
+    _smooth_tag = (
+        f"_sm{_sc.sigma_scan}_{_sc.sigma_perp}_{_sc.n_iterations}"
+        if _sc.enabled and _sc.use_smoothed
+        else "_raw"
+    )
+
     # --- Check for final cached result ---
-    dist_key = cache_key(scan_csv, "distances")
+    dist_key = cache_key(scan_csv, f"distances{_smooth_tag}")
     cached = load_cache(cache_dir, dist_key, source_path=scan_csv)
     if cached is not None:
         signed_distances = cached["signed_distances"]
@@ -117,8 +128,56 @@ def process_single_scan(
         flat_points, valid_mask, reg_config.bed_z_threshold
     )
 
+    # --- Stage 3.5: Anisotropic smoothing ---
+    smooth_cfg = config.smoothing
+    raw_bead_points = bead_points
+
+    if smooth_cfg.enabled:
+        sc = smooth_cfg
+        smooth_key = cache_key(
+            scan_csv,
+            f"smooth_s{sc.sigma_scan}_p{sc.sigma_perp}_n{sc.n_iterations}",
+        )
+        cached_smooth = load_cache(cache_dir, smooth_key, source_path=scan_csv)
+        if cached_smooth is not None:
+            smoothed_bead_points = cached_smooth["smoothed_bead_points"]
+        else:
+            n_rows, n_cols = data_corrected.shape
+            smoothed_bead_points = smooth_anisotropic_grid(
+                flat_points=flat_points,
+                valid_mask=valid_mask,
+                bead_mask=bead_mask,
+                n_rows=n_rows,
+                n_cols=n_cols,
+                sigma_scan=sc.sigma_scan,
+                sigma_perp=sc.sigma_perp,
+                scan_direction=np.array(sc.scan_direction),
+                x_spacing=config.scan.resolution,
+                y_spacing=config.scan.slice_thickness,
+                n_iterations=sc.n_iterations,
+            )
+            save_cache(
+                cache_dir, smooth_key,
+                smoothed_bead_points=smoothed_bead_points,
+            )
+
+        # Export raw + smoothed STL meshes for visual comparison (skip if exists)
+        out = config.output_dir
+        out.mkdir(parents=True, exist_ok=True)
+        stem = scan_csv.stem
+        raw_stl = out / f"{stem}_raw_bead.stl"
+        sm_stl = out / f"{stem}_smoothed_bead.stl"
+        if not raw_stl.exists():
+            save_points_as_stl(raw_bead_points, raw_stl, max_edge_length=0.5)
+        if not sm_stl.exists():
+            save_points_as_stl(smoothed_bead_points, sm_stl, max_edge_length=0.5)
+
+        # Select which points downstream stages use
+        if smooth_cfg.use_smoothed:
+            bead_points = smoothed_bead_points
+
     # --- Stage 4: Register bead to CAD mesh ---
-    reg_key = cache_key(scan_csv, "register")
+    reg_key = cache_key(scan_csv, f"register{_smooth_tag}")
     cached = load_cache(cache_dir, reg_key, source_path=scan_csv)
     if cached is not None:
         transform = cached["transform"]
@@ -238,7 +297,13 @@ def run_batch(config: PipelineConfig) -> dict[str, dict]:
         exemplar_metrics[method.display_name] = metrics
 
         # Load aligned bead points from cache for deviation map
-        dist_key = cache_key(config.scan_path(first_cycle), "distances")
+        _sc = config.smoothing
+        _smooth_tag = (
+            f"_sm{_sc.sigma_scan}_{_sc.sigma_perp}_{_sc.n_iterations}"
+            if _sc.enabled and _sc.use_smoothed
+            else "_raw"
+        )
+        dist_key = cache_key(config.scan_path(first_cycle), f"distances{_smooth_tag}")
         cached = load_cache(config.cache_dir, dist_key)
         if cached is not None and "aligned_bead_points" in cached:
             exemplar_aligned_points[method.display_name] = cached["aligned_bead_points"]

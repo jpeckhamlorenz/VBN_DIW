@@ -80,6 +80,37 @@ class RegistrationConfig:
 
 
 @dataclass
+class SmoothingConfig:
+    """
+    Parameters for anisotropic scan-direction smoothing.
+
+    Removes periodic ridges caused by oscillatory robot arm speed during
+    raster scanning.  Smoothing is applied along the known scan direction
+    to the surface-normal component of vertex displacement only, preserving
+    macro-geometry (bead trajectory, corners, width).
+    """
+
+    enabled: bool = True
+    """Master toggle for smoothing."""
+
+    sigma_scan: float = 0.9
+    """Gaussian sigma along scan direction (mm)."""
+
+    sigma_perp: float = 0.04
+    """Gaussian sigma perpendicular to scan direction (mm)."""
+
+    n_iterations: int = 1
+    """Number of Jacobi-style smoothing passes."""
+
+    scan_direction: tuple[float, float, float] = (0.0, 1.0, 0.0)
+    """Unit vector of scan direction. Y-axis for M demo raster scans."""
+
+    use_smoothed: bool = True
+    """If True, downstream stages (registration, deviation) use smoothed points.
+    If False, smoothing still runs and STLs are exported but pipeline uses raw."""
+
+
+@dataclass
 class DeviationConfig:
     """Parameters for signed distance computation and metric extraction."""
 
@@ -136,6 +167,7 @@ class PipelineConfig:
 
     scan: ScanConfig = field(default_factory=ScanConfig)
     registration: RegistrationConfig = field(default_factory=RegistrationConfig)
+    smoothing: SmoothingConfig = field(default_factory=SmoothingConfig)
     deviation: DeviationConfig = field(default_factory=DeviationConfig)
     visualization: VisualizationConfig = field(default_factory=VisualizationConfig)
 
