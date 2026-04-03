@@ -50,7 +50,7 @@ from deviation_analysis.registration import (
     register_scan_to_cad,
     segment_bed_from_bead,
 )
-from deviation_analysis.smoothing import add_sidewalls, smooth_anisotropic_grid
+from deviation_analysis.smoothing import add_sidewalls, remove_islands, smooth_anisotropic_grid
 from deviation_analysis.visualization import (
     export_metrics_csv,
     plot_boxplot_comparison,
@@ -189,6 +189,10 @@ def process_one_method(
             n_iterations=SMOOTH_CONFIG.n_iterations,
         )
         print(f'    Smoothed (σ_scan={SMOOTH_CONFIG.sigma_scan}, σ_perp={SMOOTH_CONFIG.sigma_perp})')
+        if SMOOTH_CONFIG.remove_islands:
+            bead_points, bead_mask = remove_islands(
+                bead_points, bead_mask, n_rows, n_cols
+            )
         if SMOOTH_CONFIG.add_sidewalls:
             bead_points = add_sidewalls(
                 bead_points,

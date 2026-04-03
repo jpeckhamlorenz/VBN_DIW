@@ -109,6 +109,10 @@ class SmoothingConfig:
     """If True, downstream stages (registration, deviation) use smoothed points.
     If False, smoothing still runs and STLs are exported but pipeline uses raw."""
 
+    remove_islands: bool = True
+    """Remove small disconnected islands from the bead mask, keeping only the
+    largest connected component."""
+
     add_sidewalls: bool = True
     """Add vertical sidewall points from bead edges down to the floor plane."""
 

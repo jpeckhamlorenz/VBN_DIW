@@ -14,7 +14,7 @@ for arbitrary (non-grid) point clouds.
 from __future__ import annotations
 
 import numpy as np
-from scipy.ndimage import gaussian_filter, binary_erosion
+from scipy.ndimage import binary_erosion, gaussian_filter, label
 from scipy.spatial import cKDTree
 
 
@@ -110,6 +110,67 @@ def smooth_anisotropic_grid(
     smoothed_z = z_2d.ravel()[bead_mask]
     bead_points[:, 2] = smoothed_z
     return bead_points
+
+
+# ── Island removal ───────────────────────────────────────────────────
+
+
+def remove_islands(
+    bead_points: np.ndarray,
+    bead_mask: np.ndarray,
+    n_rows: int,
+    n_cols: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Keep only the largest connected component of the bead mask.
+
+    Uses 4-connected component labelling on the 2-D raster grid.
+
+    Parameters
+    ----------
+    bead_points
+        (M, 3) bead surface points (``flat_points[bead_mask]``).
+    bead_mask
+        (N,) bool mask over the full flattened grid.
+    n_rows, n_cols
+        Raster grid dimensions.
+
+    Returns
+    -------
+    filtered_points : (M', 3)
+        Bead points belonging to the largest connected component.
+    filtered_mask : (N,) bool
+        Updated bead mask with islands removed.
+    """
+    mask_2d = bead_mask.reshape(n_rows, n_cols)
+
+    # 4-connected labelling
+    struct4 = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
+    labelled, n_components = label(mask_2d, structure=struct4)
+
+    if n_components <= 1:
+        return bead_points, bead_mask
+
+    # Find the largest component
+    component_sizes = np.bincount(labelled.ravel())
+    component_sizes[0] = 0  # ignore background
+    largest = component_sizes.argmax()
+
+    # Build filtered mask
+    keep_2d = labelled == largest
+    filtered_mask = keep_2d.ravel() & bead_mask
+
+    # Filter bead_points: bead_points[k] corresponds to the k-th True in bead_mask.
+    # We need to keep only those where filtered_mask is also True.
+    bead_indices = np.flatnonzero(bead_mask)
+    keep_points = filtered_mask[bead_indices]
+    filtered_points = bead_points[keep_points]
+
+    n_removed = len(bead_points) - len(filtered_points)
+    if n_removed > 0:
+        print(f"    Removed {n_removed:,} island points "
+              f"({n_components - 1} components, kept largest)")
+
+    return filtered_points, filtered_mask
 
 
 # ── Sidewall generation ──────────────────────────────────────────────

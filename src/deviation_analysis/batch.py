@@ -30,7 +30,7 @@ from deviation_analysis.loader import (
     raster_to_point_cloud,
     save_points_as_stl,
 )
-from deviation_analysis.smoothing import add_sidewalls, smooth_anisotropic_grid
+from deviation_analysis.smoothing import add_sidewalls, remove_islands, smooth_anisotropic_grid
 from deviation_analysis.registration import (
     flatten_point_cloud,
     register_scan_to_cad,
@@ -88,9 +88,10 @@ def process_single_scan(
     # Smoothing state affects registration and distance results, so encode
     # it in the cache suffix to avoid stale hits when toggling use_smoothed.
     _sc = config.smoothing
+    _ri = "ri" if _sc.remove_islands else "nori"
     _sw = "sw" if _sc.add_sidewalls else "nosw"
     _smooth_tag = (
-        f"_sm{_sc.sigma_scan}_{_sc.sigma_perp}_{_sc.n_iterations}_{_sw}"
+        f"_sm{_sc.sigma_scan}_{_sc.sigma_perp}_{_sc.n_iterations}_{_ri}_{_sw}"
         if _sc.enabled and _sc.use_smoothed
         else "_raw"
     )
@@ -178,7 +179,14 @@ def process_single_scan(
         if smooth_cfg.use_smoothed:
             bead_points = smoothed_bead_points
 
-    # --- Stage 3.6: Add sidewalls ---
+    # --- Stage 3.6: Remove small islands ---
+    if smooth_cfg.enabled and smooth_cfg.remove_islands:
+        n_rows, n_cols = data_corrected.shape
+        bead_points, bead_mask = remove_islands(
+            bead_points, bead_mask, n_rows, n_cols
+        )
+
+    # --- Stage 3.7: Add sidewalls ---
     if smooth_cfg.enabled and smooth_cfg.add_sidewalls:
         n_rows, n_cols = data_corrected.shape
         bead_points_surface = bead_points  # M-point surface, before sidewall augmentation
