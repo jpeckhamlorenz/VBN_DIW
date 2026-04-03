@@ -10,19 +10,20 @@ This document explains every algorithm, statistical method, and computational te
 2. [Data Loading & Point Cloud Construction](#2-data-loading--point-cloud-construction)
 3. [RANSAC Plane Fitting & Bed Flattening](#3-ransac-plane-fitting--bed-flattening)
 4. [Bed/Bead Segmentation](#4-beadbead-segmentation)
-5. [Floor Augmentation for Thin Geometry](#5-floor-augmentation-for-thin-geometry)
-6. [FPFH Feature Descriptors](#6-fpfh-feature-descriptors)
-7. [RANSAC Global Registration](#7-ransac-global-registration)
-8. [Point-to-Plane ICP Refinement](#8-point-to-plane-icp-refinement)
-9. [Signed Distance Computation](#9-signed-distance-computation)
-10. [Deviation Metrics](#10-deviation-metrics)
-11. [Kolmogorov-Smirnov Test](#11-kolmogorov-smirnov-test)
-12. [Kernel Density Estimation (KDE)](#12-kernel-density-estimation-kde)
-13. [Visualization & Output Methods](#13-visualization--output-methods)
-14. [Caching & Batch Processing](#14-caching--batch-processing)
-15. [How Everything Connects](#15-how-everything-connects)
-16. [Key Parameters & Sensitivities](#16-key-parameters--sensitivities)
-17. [Further Reading](#17-further-reading)
+5. [Anisotropic Smoothing, Island Removal & Sidewalls](#5-anisotropic-smoothing-island-removal--sidewalls)
+6. [Floor Augmentation for Thin Geometry](#6-floor-augmentation-for-thin-geometry)
+7. [FPFH Feature Descriptors](#7-fpfh-feature-descriptors)
+8. [RANSAC Global Registration](#8-ransac-global-registration)
+9. [Point-to-Plane ICP Refinement](#9-point-to-plane-icp-refinement)
+10. [Signed Distance Computation](#10-signed-distance-computation)
+11. [Deviation Metrics](#11-deviation-metrics)
+12. [Kolmogorov-Smirnov Test](#12-kolmogorov-smirnov-test)
+13. [Kernel Density Estimation (KDE)](#13-kernel-density-estimation-kde)
+14. [Visualization & Output Methods](#14-visualization--output-methods)
+15. [Caching & Batch Processing](#15-caching--batch-processing)
+16. [How Everything Connects](#16-how-everything-connects)
+17. [Key Parameters & Sensitivities](#17-key-parameters--sensitivities)
+18. [Further Reading](#18-further-reading)
 
 ---
 
@@ -40,6 +41,8 @@ Raw laser scan (CSV)          CAD model (STL)
   [RANSAC plane fit → flatten]      |
        |                            |
   [Segment bed from bead]           |
+       |                            |
+  [Anisotropic smooth → island removal → add sidewalls]
        |                            |
   [Augment bead with synthetic floor]  ← registration only
        |                            |
@@ -143,7 +146,121 @@ This provides a clean separation in the typical case. The RANSAC plane fitting i
 
 ---
 
-## 5. Floor Augmentation for Thin Geometry
+## 5. Anisotropic Smoothing, Island Removal & Sidewalls
+
+This stage, implemented in `smoothing.py`, post-processes the segmented bead point cloud before registration. All three sub-stages are controlled by `SmoothingConfig` and can be independently toggled.
+
+### 5a. Anisotropic Gaussian Smoothing
+
+#### The problem
+
+During raster scanning, periodic oscillations in the robot arm's traverse speed imprint ridges on the measured surface with a wavelength of ~4 mm along the scan direction (Y-axis). These ridges are scanning artifacts — not real features of the printed bead — and inflate deviation metrics if left uncorrected.
+
+#### Method: NaN-aware normalized convolution on the raster grid
+
+Because the scan data originates as a regular 2D raster (rows × columns), we can exploit the grid structure for fast smoothing rather than using expensive KD-tree ball queries on the 3D point cloud.
+
+The key insight is that smoothing should be **anisotropic** — aggressive along the scan direction (Y, to remove ~4 mm ridges) but minimal perpendicular to it (X, to preserve the bead's cross-sectional profile). The two sigma parameters control this:
+
+- **σ_scan = 0.9 mm** along the scan direction (Y). This smooths out the ~4 mm ridges while preserving larger-scale geometry (corners, width changes). The effective smoothing window is roughly ±3σ ≈ ±2.7 mm.
+- **σ_perp = 0.04 mm** perpendicular to scan (X). This is only 2× the column spacing (0.02 mm), so it barely smooths cross-scan — just enough to reduce single-pixel noise without blurring the bead's sidewall edges.
+
+The sigmas are converted from millimeters to grid cells using the known point spacings:
+
+```
+sigma_axis0 (rows, Y-direction) = sigma_scan / y_spacing
+sigma_axis1 (cols, X-direction) = sigma_perp / x_spacing
+```
+
+#### Handling NaN values (normalized convolution)
+
+The raster grid contains NaN entries (invalid sensor readings, points outside the bead mask). Standard Gaussian filtering propagates NaN to all neighbors. The **normalized convolution trick** avoids this:
+
+1. Replace NaN with 0 in the height map, creating `z_filled`
+2. Create a binary weight map `w` (1.0 where valid, 0.0 where NaN)
+3. Apply the same Gaussian filter to both:
+   - `z_smooth = gaussian_filter(z_filled × w, sigma)`
+   - `w_smooth = gaussian_filter(w, sigma)`
+4. Divide: `z_result = z_smooth / w_smooth`
+
+This effectively computes a weighted average where NaN points contribute zero weight. Points with insufficient valid neighbors (w_smooth ≈ 0) retain their original values.
+
+#### What smoothing does NOT change
+
+- **XY coordinates** are untouched — only Z heights are modified
+- **Bead outline/mask** is unchanged — smoothing operates within the existing valid region
+- **Macro geometry** (corners, width) is preserved because σ_perp is very small
+
+**Parameters are identical across all methods** (VBN, static ideal, static naive) to ensure fair comparison. No per-scan tuning.
+
+### 5b. Island Removal
+
+#### The problem
+
+After bed/bead segmentation, the bead mask may contain small disconnected clusters of points — stray droplets, sensor noise spikes, or bed artifacts that happened to exceed the Z threshold. These "islands" add noise to registration and metrics.
+
+#### Method: connected-component labeling on the 2D grid
+
+Using `scipy.ndimage.label` with 4-connected structure on the 2D bead mask:
+
+1. Label each connected component (group of adjacent True pixels in the mask)
+2. Count the size of each component
+3. Keep only the largest component (the main bead body)
+4. Remove all other components from both the mask and the point array
+
+This is efficient because it operates on the 2D raster grid rather than doing 3D clustering on the point cloud. Typical results: ~90–100 small islands removed, totaling ~1,000–2,000 points out of ~975,000.
+
+### 5c. Vertical Sidewall Generation
+
+#### The problem
+
+The laser scan only captures the top surface of the bead. When comparing to the CAD mesh (which is a closed solid with vertical side faces), scan points near the bead edges have large signed distances to the nearest CAD sidewall face. This inflates deviation metrics at the edges even when the top surface matches well.
+
+#### Method: edge detection + vertical point columns
+
+1. **Edge detection:** Apply binary erosion (4-connected structuring element) to the 2D bead mask. Edge pixels are those in the original mask but not in the eroded mask — i.e., pixels that border a non-bead region.
+
+2. **Vertical columns:** For each edge pixel, create a column of points from the bead surface height down to the floor plane (Z = 0) at a spacing of `sidewall_z_step` (default 0.1 mm). Each point shares the edge pixel's XY coordinates.
+
+3. **Augmentation:** The sidewall points are appended to the bead point array. All subsequent stages (registration, distance computation) operate on the combined surface + sidewall cloud.
+
+#### STL export with sidewalls
+
+Point clouds with sidewalls cannot be faithfully represented by 2D Delaunay triangulation (which collapses vertical geometry). The `build_sidewalled_mesh()` function in `loader.py` constructs the mesh explicitly from three components:
+
+- **Top surface:** 2D Delaunay triangulation of bead surface points (XY projection), with long-edge filtering
+- **Sidewall quads:** For each pair of adjacent edge pixels (right or bottom neighbor), two triangles connecting their vertical columns form a quad strip
+- **Floor:** 2D Delaunay triangulation of edge pixel XY positions at Z = 0, with long-edge filtering
+
+The final mesh is exported via Open3D (`compute_vertex_normals` + `write_triangle_mesh`).
+
+### Configuration
+
+All parameters live in `SmoothingConfig` (in `config.py`):
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `enabled` | `True` | Master toggle for the entire smoothing stage |
+| `sigma_scan` | 0.9 mm | Gaussian sigma along scan direction |
+| `sigma_perp` | 0.04 mm | Gaussian sigma perpendicular to scan |
+| `n_iterations` | 1 | Number of smoothing passes |
+| `scan_direction` | (0, 1, 0) | Unit vector of scan direction |
+| `use_smoothed` | `True` | If False, smoothing runs and exports STLs but pipeline uses raw points |
+| `remove_islands` | `True` | Enable connected-component island removal |
+| `add_sidewalls` | `True` | Enable vertical sidewall point generation |
+| `sidewall_z_step` | 0.1 mm | Vertical spacing between sidewall points |
+
+### Validation
+
+`validate_smoothing.py` runs the pipeline twice (raw vs. smoothed) on the same scan and compares:
+- RMSD, MSD, MAE, 95th percentile metrics
+- KDE distribution overlays
+- KS test for statistical difference
+- Point-wise |d_smoothed − d_raw| statistics
+
+---
+
+## 6. Floor Augmentation for Thin Geometry
 
 ### The problem
 
@@ -173,7 +290,7 @@ However, they are intentionally excluded from distance computation and deviation
 
 ---
 
-## 6. FPFH Feature Descriptors
+## 7. FPFH Feature Descriptors
 
 ### The problem
 
@@ -201,7 +318,7 @@ FPFH is computed on a downsampled version of the point cloud (voxel size = 0.5 m
 
 ---
 
-## 6. RANSAC Global Registration
+## 8. RANSAC Global Registration
 
 ### The problem
 
@@ -236,7 +353,7 @@ Two additional checks reject geometrically inconsistent correspondences before R
 
 ---
 
-## 7. Point-to-Plane ICP Refinement
+## 9. Point-to-Plane ICP Refinement
 
 ### The problem
 
@@ -275,7 +392,7 @@ There are two main ICP variants:
 
 ---
 
-## 8. Signed Distance Computation
+## 10. Signed Distance Computation
 
 ### The problem
 
@@ -308,7 +425,7 @@ This assumes the CAD mesh has consistently outward-facing normals, which is stan
 
 ---
 
-## 9. Deviation Metrics
+## 11. Deviation Metrics
 
 Each metric captures a different aspect of print quality:
 
@@ -378,7 +495,7 @@ But for a flat, single-layer print scanned from above, this approximation is rea
 
 ---
 
-## 10. Kolmogorov-Smirnov Test
+## 12. Kolmogorov-Smirnov Test
 
 ### What it is
 
@@ -411,7 +528,7 @@ With ~1M points per scan, the KS test has enormous statistical power. It will de
 
 ---
 
-## 11. Kernel Density Estimation (KDE)
+## 13. Kernel Density Estimation (KDE)
 
 ### What it is
 
@@ -447,7 +564,7 @@ The x-axis is signed deviation (mm), the y-axis is probability density. Each cur
 
 ---
 
-## 13. Visualization & Output Methods
+## 14. Visualization & Output Methods
 
 ### Spatial Deviation Maps
 
@@ -479,20 +596,24 @@ A matplotlib-rendered table formatted for direct inclusion in a paper or supplem
 
 ### STL Export of Scan Point Clouds
 
-The pipeline can export the segmented bead point cloud as an STL mesh file at two stages of processing:
+The pipeline can export the segmented bead point cloud as STL mesh files at multiple stages:
 
-- **Pre-registration (`*_bead_scan.stl`):** Bead points in the flattened/segmented coordinate frame, before alignment to the CAD. Useful for inspecting raw scan quality and verifying segmentation.
-- **Post-registration (`*_bead_aligned.stl`):** Bead points after the FPFH + ICP transform has been applied, in the CAD coordinate frame. Can be directly overlaid with the CAD STL in any 3D viewer (MeshLab, Blender, etc.) to visually verify registration quality.
+- **Raw bead (`*_raw_bead.stl`):** Bead points after segmentation, before smoothing. Useful for inspecting raw scan quality.
+- **Smoothed bead (`*_smoothed_bead.stl`):** Bead points after anisotropic smoothing (top surface only, no sidewalls).
+- **Sidewalled bead (`*_sidewalled_bead*.stl`):** Full mesh with top surface, vertical sidewalls, and floor — built with explicit mesh construction via `build_sidewalled_mesh()`.
+- **Aligned bead (`*_bead_aligned.stl`):** Bead points after the FPFH + ICP transform has been applied, in the CAD coordinate frame. Can be directly overlaid with the CAD STL in any 3D viewer (MeshLab, Blender, etc.) to visually verify registration quality.
 
-**Meshing method — 2D Delaunay triangulation:** Since the scan data is a 2.5D height map (one Z value per XY location), we triangulate on the XY plane and use Z as vertex height. This is more appropriate than Poisson reconstruction or ball-pivot algorithms, which are designed for true 3D point clouds with arbitrary surface orientations.
+**Top-surface meshing — 2D Delaunay triangulation:** Since the scan data is a 2.5D height map (one Z value per XY location), we triangulate on the XY plane and use Z as vertex height. This is more appropriate than Poisson reconstruction or ball-pivot algorithms, which are designed for true 3D point clouds with arbitrary surface orientations.
 
 **Delaunay triangulation** finds the triangulation of a 2D point set that maximizes the minimum angle of all triangles (avoiding very thin, elongated triangles). Formally, it guarantees that no point lies inside the circumcircle of any triangle. On a regular or near-regular grid like our raster scan, this produces a clean mesh of approximately equilateral triangles.
 
 **Long-edge filtering (`max_edge_length`):** The Delaunay triangulation will connect all points in the convex hull, including long triangles that span the gaps between strokes of the "M." The `max_edge_length` parameter (default 0.5 mm, about 25× the scan resolution) removes any triangle with an edge longer than this threshold, preventing spurious spanning faces across physically separate bead strokes.
 
+**Sidewalled mesh construction (`build_sidewalled_mesh`):** 2D Delaunay cannot represent vertical geometry (same XY, different Z). The sidewalled STL is built explicitly from three components: Delaunay top surface, quad-strip sidewalls between adjacent edge pixels, and a Delaunay floor at Z = 0. The final mesh is exported via Open3D.
+
 ---
 
-## 14. Caching & Batch Processing
+## 15. Caching & Batch Processing
 
 ### NPZ Caching
 
@@ -503,6 +624,8 @@ The pipeline caches intermediate results as compressed NumPy archives (.npz) at 
 3. **After distance computation:** Saves signed distances and aligned bead points
 
 **Cache invalidation:** If the source file (scan CSV) is newer than the cache file (based on filesystem modification times), the cache is considered stale and recomputed. This prevents using outdated results when input data is updated.
+
+**Smoothing-aware cache keys:** Cache filenames encode the smoothing state so that raw and smoothed runs don't collide. The tag format is `_sm{sigma_scan}_{sigma_perp}_{n_iter}_{ri/nori}_{sw/nosw}` for smoothed runs, or `_raw` for unsmoothed runs. Changing any smoothing parameter automatically invalidates the relevant caches.
 
 **Why cache?** Registration (FPFH + RANSAC + ICP) takes 30-60 seconds per scan. Signed distance computation on 1M points takes another 10-20 seconds. Caching lets you re-run visualization and metric extraction in seconds without redoing expensive computation.
 
@@ -515,7 +638,7 @@ The batch system iterates over multiple methods and scans, running the full pipe
 
 ---
 
-## 15. How Everything Connects
+## 16. How Everything Connects
 
 Here's the complete data flow with method connections:
 
@@ -563,7 +686,25 @@ Here's the complete data flow with method connections:
            │  • Z ≤ 0.15mm → bed  │
            └──────────┬──────────┘
                       │
-              bead_points (~1M, 3)   ← kept for metrics
+              bead_points (~1M, 3)
+                      │
+           ┌──────────┴──────────┐
+           │  SMOOTHING & CLEANUP │
+           │  smoothing.py        │
+           │                      │
+           │  • Anisotropic 2D    │
+           │    Gaussian on grid  │
+           │    (σ_scan=0.9mm,    │
+           │     σ_perp=0.04mm)   │
+           │  • NaN-aware norm.   │
+           │    convolution       │
+           │  • Island removal    │
+           │    (connected comp.) │
+           │  • Sidewall gen.     │
+           │    (edge→Z=0 cols)   │
+           └──────────┬──────────┘
+                      │
+              bead_points (~1M+W, 3)  ← kept for metrics
                       │
            ┌──────────┴──────────┐
            │  FLOOR AUGMENTATION  │
@@ -658,7 +799,7 @@ Here's the complete data flow with method connections:
 
 ---
 
-## 16. Key Parameters & Sensitivities
+## 17. Key Parameters & Sensitivities
 
 | Parameter | Value | What it controls | Sensitivity |
 |-----------|-------|-----------------|-------------|
@@ -672,13 +813,18 @@ Here's the complete data flow with method connections:
 | `ransac_max_iterations` | 4M | Iterations for global registration | Low — more iterations = more likely to find correct alignment but slower |
 | `icp_threshold` | 0.1 mm | Max correspondence distance for ICP | **High** — too small rejects valid correspondences. Too large allows wrong matches to influence alignment |
 | `augment_with_floor` | True | Add synthetic floor for registration | Low on metrics (floor points never used for distances). Significant effect on registration quality for thin geometry — disabling it risks poor FPFH matches |
+| `sigma_scan` | 0.9 mm | Gaussian sigma along scan direction | **High** — must be large enough to cover ~4 mm ridge wavelength (effective window ±3σ ≈ ±2.7 mm) but not so large as to blur corners. |
+| `sigma_perp` | 0.04 mm | Gaussian sigma perpendicular to scan | **High** — must stay small relative to bead width (~1 mm). Values > ~0.1 mm will visibly blur the bead cross-section and destroy sidewall detail. |
+| `remove_islands` | True | Drop disconnected small components | Low — typically removes ~1K points out of ~975K. Improves registration robustness. |
+| `add_sidewalls` | True | Add vertical sidewall points | Moderate — improves edge deviation metrics by giving the scan geometry vertical faces to match against the CAD sidewalls. |
+| `sidewall_z_step` | 0.1 mm | Vertical spacing of sidewall points | Low — smaller values add more points (denser walls) but with diminishing returns. 0.1 mm is ~2× the bead Z noise floor. |
 | `max_edge_length` (STL) | 0.5 mm | Long-edge filter for STL meshing | Moderate — controls which spanning triangles are removed. Too small removes valid triangles at sharp corners; too large keeps artifacts across bead gaps |
 | `clim` | ±0.3 mm | Color scale for deviation maps | Visual only — affects interpretation. Should be consistent across all methods for fair comparison |
 | `percentile` | 95% | Which percentile for worst-case metric | Low — 95% is standard; 99% would be more conservative |
 
 ---
 
-## 17. Further Reading
+## 18. Further Reading
 
 ### Point Cloud Registration
 - **ICP:** Besl & McKay, "A Method for Registration of 3-D Shapes," *IEEE PAMI*, 1992.

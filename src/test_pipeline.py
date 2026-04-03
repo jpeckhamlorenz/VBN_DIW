@@ -23,6 +23,7 @@ RUN_STAGE_2_HEIGHT_CORRECT = True  # Height correction
 RUN_STAGE_3_POINT_CLOUD = True  # Raster -> point cloud conversion
 RUN_STAGE_4_FLATTEN = True  # RANSAC plane flatten
 RUN_STAGE_5_SEGMENT = True  # Bed / bead segmentation
+RUN_STAGE_5B_SMOOTH = True  # Smoothing + island removal + sidewalls
 RUN_STAGE_6_CAD_MESH = True  # Load CAD STL mesh
 RUN_STAGE_7_REGISTER = True  # FPFH + ICP registration
 RUN_STAGE_8_DISTANCES = True  # Signed distance computation
@@ -42,8 +43,8 @@ SHOW_PLOTS = True  # Set False to only save PNGs and skip interactive display
 
 
 DATA_DIR = Path('demos/m')
-SCAN_CSV = DATA_DIR / 'm_VBN_2_cycle_002.csv'
-TOOLPATH_CSV = DATA_DIR / 'm_VBN_2.csv'
+SCAN_CSV = DATA_DIR / 'm_static_ideal_cycle_001.csv'
+TOOLPATH_CSV = DATA_DIR / 'm_static_ideal.csv'
 STL_FILE = DATA_DIR / 'm_ideal.stl'
 OUTPUT_DIR = Path('deviation_analysis/output/test')
 CACHE_DIR = Path('deviation_analysis/cache/test')
@@ -58,7 +59,7 @@ METHOD_NAMES = {
 METHOD_NAME = METHOD_NAMES.get(TOOLPATH_CSV.stem, TOOLPATH_CSV.stem)
 
 
-def _separator(stage: int, title: str) -> None:
+def _separator(stage: int | str, title: str) -> None:
     print(f'\n{"=" * 60}')
     print(f'  STAGE {stage}: {title}')
     print(f'{"=" * 60}')
@@ -280,6 +281,120 @@ if RUN_STAGE_5_SEGMENT:
 
 else:
     print('\n  [Stage 5 skipped]')
+
+
+# ===== STAGE 5B: Smoothing + island removal + sidewalls ====================
+if RUN_STAGE_5B_SMOOTH:
+    _separator('5B', 'Smoothing + island removal + sidewalls')
+
+    from deviation_analysis.config import SmoothingConfig
+    from deviation_analysis.smoothing import (
+        add_sidewalls,
+        remove_islands,
+        smooth_anisotropic_grid,
+    )
+
+    smooth_config = SmoothingConfig()  # uses defaults from config.py
+
+    n_rows, n_cols = data_mm.shape
+    bead_points_raw = bead_points.copy()  # keep raw for comparison plots
+
+    if smooth_config.enabled:
+        # --- Smoothing ---
+        bead_points_smoothed = smooth_anisotropic_grid(
+            flat_points=flat_points,
+            valid_mask=valid_mask,
+            bead_mask=bead_mask,
+            n_rows=n_rows,
+            n_cols=n_cols,
+            sigma_scan=smooth_config.sigma_scan,
+            sigma_perp=smooth_config.sigma_perp,
+            scan_direction=np.array(smooth_config.scan_direction),
+            x_spacing=scan_config.resolution,
+            y_spacing=scan_config.slice_thickness,
+            n_iterations=smooth_config.n_iterations,
+        )
+        print(f'  Smoothed: σ_scan={smooth_config.sigma_scan}, σ_perp={smooth_config.sigma_perp}')
+        z_diff = np.abs(bead_points_smoothed[:, 2] - bead_points_raw[:, 2])
+        print(f'  Z change: mean={z_diff.mean():.4f}, max={z_diff.max():.4f} mm')
+
+        if smooth_config.use_smoothed:
+            bead_points = bead_points_smoothed
+            print('  Using smoothed points for downstream stages')
+        else:
+            print('  use_smoothed=False — keeping raw points for downstream stages')
+
+        # --- Island removal ---
+        if smooth_config.remove_islands:
+            n_before = len(bead_points)
+            bead_points, bead_mask = remove_islands(bead_points, bead_mask, n_rows, n_cols)
+            n_removed = n_before - len(bead_points)
+            print(f'  Island removal: {n_removed:,} points removed, {len(bead_points):,} remaining')
+
+        # --- Sidewalls ---
+        if smooth_config.add_sidewalls:
+            n_surface = len(bead_points)
+            bead_points = add_sidewalls(
+                bead_points,
+                bead_mask=bead_mask,
+                n_rows=n_rows,
+                n_cols=n_cols,
+                flat_points=flat_points,
+                z_step=smooth_config.sidewall_z_step,
+                floor_z=0.0,
+            )
+            n_wall = len(bead_points) - n_surface
+            print(f'  Sidewalls: +{n_wall:,} points ({len(bead_points):,} total)')
+
+        # Save smoothed+walled STL
+        from deviation_analysis.loader import build_sidewalled_mesh, save_points_as_stl
+
+        stl_sm = save_points_as_stl(
+            bead_points_smoothed if smooth_config.use_smoothed else bead_points_raw,
+            OUTPUT_DIR / 'stage5b_bead_smoothed.stl',
+            max_edge_length=0.5,
+        )
+        print(f'  -> Saved smoothed STL: {stl_sm}')
+
+        if smooth_config.add_sidewalls:
+            stl_sw = OUTPUT_DIR / 'stage5b_bead_sidewalled.stl'
+            # Use surface points (pre-sidewall augmentation) for mesh construction
+            surface_pts = bead_points_smoothed if smooth_config.use_smoothed else bead_points_raw
+            # Re-apply island removal to surface points if needed
+            if smooth_config.remove_islands:
+                surface_pts_clean, _ = remove_islands(surface_pts, bead_mask, n_rows, n_cols)
+            else:
+                surface_pts_clean = surface_pts
+            build_sidewalled_mesh(
+                bead_points=surface_pts_clean,
+                bead_mask=bead_mask,
+                n_rows=n_rows,
+                n_cols=n_cols,
+                output_path=stl_sw,
+                floor_z=0.0,
+                max_edge_length=0.5,
+            )
+            print(f'  -> Saved sidewalled STL: {stl_sw}')
+
+        # Before/after Z comparison
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+        axes[0].hist(bead_points_raw[:, 2], bins=200, color='steelblue', edgecolor='none', density=True)
+        axes[0].set_title('Before smoothing: bead Z')
+        axes[0].set_xlabel('Z (mm)')
+
+        z_plot = bead_points_smoothed[:, 2] if smooth_config.use_smoothed else bead_points_raw[:, 2]
+        axes[1].hist(z_plot, bins=200, color='coral', edgecolor='none', density=True)
+        axes[1].set_title('After smoothing: bead Z')
+        axes[1].set_xlabel('Z (mm)')
+
+        for a in axes:
+            a.set_ylabel('Density')
+        fig.suptitle(f'Stage 5B: Smoothing (σ_scan={smooth_config.sigma_scan}, σ_perp={smooth_config.sigma_perp})')
+        _show_or_save(fig, 'stage5b_smoothing_z_hist')
+    else:
+        print('  Smoothing disabled (smooth_config.enabled=False)')
+else:
+    print('\n  [Stage 5B skipped]')
 
 
 # ===== STAGE 6: Load CAD mesh ==============================================
