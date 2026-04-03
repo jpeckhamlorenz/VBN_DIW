@@ -109,6 +109,12 @@ class SmoothingConfig:
     """If True, downstream stages (registration, deviation) use smoothed points.
     If False, smoothing still runs and STLs are exported but pipeline uses raw."""
 
+    add_sidewalls: bool = True
+    """Add vertical sidewall points from bead edges down to the floor plane."""
+
+    sidewall_z_step: float = 0.1
+    """Vertical spacing (mm) between sidewall points."""
+
 
 @dataclass
 class DeviationConfig:

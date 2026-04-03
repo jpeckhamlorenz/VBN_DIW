@@ -28,6 +28,7 @@ from deviation_analysis.config import (
     DeviationConfig,
     RegistrationConfig,
     ScanConfig,
+    SmoothingConfig,
     VisualizationConfig,
 )
 from deviation_analysis.deviation import (
@@ -49,6 +50,7 @@ from deviation_analysis.registration import (
     register_scan_to_cad,
     segment_bed_from_bead,
 )
+from deviation_analysis.smoothing import add_sidewalls, smooth_anisotropic_grid
 from deviation_analysis.visualization import (
     export_metrics_csv,
     plot_boxplot_comparison,
@@ -86,6 +88,7 @@ SCAN_CONFIG = ScanConfig(
 )
 
 REG_CONFIG = RegistrationConfig()  # all defaults
+SMOOTH_CONFIG = SmoothingConfig()  # uses defaults from config.py
 DEV_CONFIG = DeviationConfig()  # percentile=95
 VIS_CONFIG = VisualizationConfig()  # clim=(-0.3, 0.3), dpi=300
 
@@ -166,8 +169,37 @@ def process_one_method(
     print(f'    Flattened (intercept={intercept:.3f} mm)')
 
     # 4. Segment
-    bead_points, bed_points, _bead_mask = segment_bed_from_bead(flat_points, valid_mask, REG_CONFIG.bed_z_threshold)
+    bead_points, bed_points, bead_mask = segment_bed_from_bead(flat_points, valid_mask, REG_CONFIG.bed_z_threshold)
     print(f'    Segmented: {len(bead_points):,} bead / {len(bed_points):,} bed')
+
+    # 4.5 Smoothing + sidewalls
+    n_rows, n_cols = data_mm.shape
+    if SMOOTH_CONFIG.enabled:
+        bead_points = smooth_anisotropic_grid(
+            flat_points=flat_points,
+            valid_mask=valid_mask,
+            bead_mask=bead_mask,
+            n_rows=n_rows,
+            n_cols=n_cols,
+            sigma_scan=SMOOTH_CONFIG.sigma_scan,
+            sigma_perp=SMOOTH_CONFIG.sigma_perp,
+            scan_direction=np.array(SMOOTH_CONFIG.scan_direction),
+            x_spacing=SCAN_CONFIG.resolution,
+            y_spacing=SCAN_CONFIG.slice_thickness,
+            n_iterations=SMOOTH_CONFIG.n_iterations,
+        )
+        print(f'    Smoothed (σ_scan={SMOOTH_CONFIG.sigma_scan}, σ_perp={SMOOTH_CONFIG.sigma_perp})')
+        if SMOOTH_CONFIG.add_sidewalls:
+            bead_points = add_sidewalls(
+                bead_points,
+                bead_mask=bead_mask,
+                n_rows=n_rows,
+                n_cols=n_cols,
+                flat_points=flat_points,
+                z_step=SMOOTH_CONFIG.sidewall_z_step,
+                floor_z=0.0,
+            )
+            print(f'    Added sidewalls ({len(bead_points):,} total points)')
 
     # 5. Register
     print('    Registering to CAD (FPFH + ICP)...')

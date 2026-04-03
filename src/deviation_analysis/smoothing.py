@@ -14,7 +14,7 @@ for arbitrary (non-grid) point clouds.
 from __future__ import annotations
 
 import numpy as np
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, binary_erosion
 from scipy.spatial import cKDTree
 
 
@@ -109,6 +109,87 @@ def smooth_anisotropic_grid(
     bead_points = flat_points[bead_mask].copy()
     smoothed_z = z_2d.ravel()[bead_mask]
     bead_points[:, 2] = smoothed_z
+    return bead_points
+
+
+# ── Sidewall generation ──────────────────────────────────────────────
+
+
+def add_sidewalls(
+    bead_points: np.ndarray,
+    bead_mask: np.ndarray,
+    n_rows: int,
+    n_cols: int,
+    flat_points: np.ndarray,
+    z_step: float = 0.1,
+    floor_z: float = 0.0,
+) -> np.ndarray:
+    """Add vertical sidewall points from bead edges down to the floor.
+
+    Finds the boundary pixels of the bead region in the raster grid,
+    then for each boundary pixel creates a vertical column of points
+    from that pixel's Z height down to *floor_z*.
+
+    Parameters
+    ----------
+    bead_points
+        (M, 3) bead surface point cloud (smoothed or raw).
+    bead_mask
+        (N,) bool mask over the full flattened grid (``n_rows * n_cols``).
+    n_rows, n_cols
+        Raster grid dimensions.
+    flat_points
+        (N, 3) full flattened point cloud (used to get XY positions of
+        edge pixels; Z values come from *bead_points*).
+    z_step
+        Vertical spacing (mm) between successive sidewall points.
+    floor_z
+        Z level of the floor / bed plane (mm).
+
+    Returns
+    -------
+    augmented : (M + S, 3)
+        Original *bead_points* with sidewall points appended.  The first
+        M rows are the original bead points (unchanged).
+    """
+    mask_2d = bead_mask.reshape(n_rows, n_cols)
+
+    # Edge detection: bead pixels with at least one non-bead 4-neighbour
+    eroded = binary_erosion(mask_2d, structure=np.array([[0, 1, 0],
+                                                          [1, 1, 1],
+                                                          [0, 1, 0]]))
+    edge_2d = mask_2d & ~eroded  # boundary ring
+
+    # Map from flattened grid index → bead_points row index
+    # bead_points[k] corresponds to flat_points[bead_indices[k]]
+    bead_indices = np.flatnonzero(bead_mask)
+    # For edge pixels, find their position in bead_points
+    edge_flat_indices = np.flatnonzero(edge_2d.ravel() & bead_mask)
+
+    # Build lookup: flat_index → bead_points row
+    flat_to_bead = np.full(n_rows * n_cols, -1, dtype=np.intp)
+    flat_to_bead[bead_indices] = np.arange(len(bead_indices))
+
+    sidewall_points = []
+    for fi in edge_flat_indices:
+        bi = flat_to_bead[fi]
+        if bi < 0:
+            continue
+        x, y, z_top = bead_points[bi]
+        if z_top <= floor_z + z_step:
+            continue  # too close to floor, skip
+        # Create column from just below z_top down to floor_z
+        n_steps = max(1, int(np.ceil((z_top - floor_z) / z_step)))
+        z_vals = np.linspace(z_top - z_step, floor_z, n_steps)
+        col = np.empty((len(z_vals), 3), dtype=np.float64)
+        col[:, 0] = x
+        col[:, 1] = y
+        col[:, 2] = z_vals
+        sidewall_points.append(col)
+
+    if sidewall_points:
+        sidewall = np.vstack(sidewall_points)
+        return np.vstack([bead_points, sidewall])
     return bead_points
 
 

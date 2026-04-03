@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import open3d as o3d
 from scipy.interpolate import interp1d
+from scipy.ndimage import binary_erosion
 from scipy.spatial import Delaunay
 
 from deviation_analysis.config import ScanConfig
@@ -207,6 +208,19 @@ def load_cad_mesh(filepath: Path) -> o3d.geometry.TriangleMesh:
     return mesh
 
 
+def _filter_long_edges(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    max_edge_length: float,
+) -> np.ndarray:
+    """Return boolean mask of faces whose longest edge ≤ *max_edge_length*."""
+    v = vertices[faces]  # (F, 3, 3)
+    e0 = np.linalg.norm(v[:, 1] - v[:, 0], axis=1)
+    e1 = np.linalg.norm(v[:, 2] - v[:, 1], axis=1)
+    e2 = np.linalg.norm(v[:, 0] - v[:, 2], axis=1)
+    return np.maximum(np.maximum(e0, e1), e2) <= max_edge_length
+
+
 def save_points_as_stl(
     points: np.ndarray,
     output_path: Path,
@@ -266,4 +280,137 @@ def save_points_as_stl(
     mesh.compute_vertex_normals()
 
     o3d.io.write_triangle_mesh(str(output_path), mesh)
+    return output_path
+
+
+def build_sidewalled_mesh(
+    bead_points: np.ndarray,
+    bead_mask: np.ndarray,
+    n_rows: int,
+    n_cols: int,
+    output_path: Path,
+    floor_z: float = 0.0,
+    max_edge_length: float = 0.5,
+) -> Path:
+    """Build an STL mesh with bead top surface, vertical sidewalls, and floor.
+
+    Unlike :func:`save_points_as_stl` (2-D Delaunay, can't represent vertical
+    geometry), this function constructs the mesh explicitly:
+
+    * **Top surface** — 2-D Delaunay on bead point XY projection.
+    * **Sidewalls** — quad strips between adjacent edge-pixel columns,
+      connecting bead surface to floor.
+    * **Floor** — 2-D Delaunay on edge-pixel XY footprint at *floor_z*.
+
+    Parameters
+    ----------
+    bead_points
+        (M, 3) smoothed bead surface points **before** sidewall point
+        augmentation (i.e. one Z per XY location).
+    bead_mask
+        (N,) bool mask over the full flattened raster grid.
+    n_rows, n_cols
+        Raster grid dimensions (``N = n_rows * n_cols``).
+    output_path
+        Where to write the binary STL.
+    floor_z
+        Z level of the synthetic floor (mm).
+    max_edge_length
+        Triangles with any edge longer than this (mm) are removed from the
+        top and floor surfaces to avoid spanning gaps between bead strokes.
+
+    Returns
+    -------
+    Path
+        The path the STL was written to.
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    M = len(bead_points)
+
+    # ── Edge detection (same pattern as smoothing.add_sidewalls) ──────
+    mask_2d = bead_mask.reshape(n_rows, n_cols)
+    struct4 = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
+    eroded = binary_erosion(mask_2d, structure=struct4)
+    edge_2d = mask_2d & ~eroded
+
+    bead_indices = np.flatnonzero(bead_mask)
+    flat_to_bead = np.full(n_rows * n_cols, -1, dtype=np.intp)
+    flat_to_bead[bead_indices] = np.arange(len(bead_indices))
+
+    edge_flat_indices = np.flatnonzero(edge_2d.ravel() & bead_mask)
+    E = len(edge_flat_indices)
+
+    # ── Floor vertices ────────────────────────────────────────────────
+    edge_bead_idx = flat_to_bead[edge_flat_indices]
+    floor_verts = bead_points[edge_bead_idx].copy()
+    floor_verts[:, 2] = floor_z
+
+    vertices = np.vstack([bead_points, floor_verts])  # (M+E, 3)
+
+    # Lookup: flat grid index → floor vertex index (M-based)
+    flat_to_floor = np.full(n_rows * n_cols, -1, dtype=np.intp)
+    for k, fi in enumerate(edge_flat_indices):
+        flat_to_floor[fi] = M + k
+
+    # ── Top surface faces (2-D Delaunay) ──────────────────────────────
+    tri_top = Delaunay(bead_points[:, :2])
+    top_faces = tri_top.simplices
+    if max_edge_length is not None:
+        top_faces = top_faces[_filter_long_edges(vertices, top_faces, max_edge_length)]
+
+    # ── Sidewall quad faces ───────────────────────────────────────────
+    is_edge = np.zeros(n_rows * n_cols, dtype=bool)
+    is_edge[edge_flat_indices] = True
+
+    sw_faces: list[list[int]] = []
+    for fi in edge_flat_indices:
+        row, col = divmod(int(fi), n_cols)
+        top_a = flat_to_bead[fi]
+        floor_a = flat_to_floor[fi]
+        if top_a < 0 or floor_a < 0:
+            continue
+
+        # Right neighbour
+        if col + 1 < n_cols:
+            fi_r = fi + 1
+            if is_edge[fi_r]:
+                top_b = flat_to_bead[fi_r]
+                floor_b = flat_to_floor[fi_r]
+                if top_b >= 0 and floor_b >= 0:
+                    sw_faces.append([top_a, top_b, floor_b])
+                    sw_faces.append([top_a, floor_b, floor_a])
+
+        # Bottom neighbour
+        if row + 1 < n_rows:
+            fi_d = fi + n_cols
+            if is_edge[fi_d]:
+                top_b = flat_to_bead[fi_d]
+                floor_b = flat_to_floor[fi_d]
+                if top_b >= 0 and floor_b >= 0:
+                    sw_faces.append([top_a, top_b, floor_b])
+                    sw_faces.append([top_a, floor_b, floor_a])
+
+    sidewall_faces = np.array(sw_faces, dtype=np.int32) if sw_faces else np.empty((0, 3), dtype=np.int32)
+
+    # ── Floor surface faces (2-D Delaunay on edge footprint) ──────────
+    if E >= 3:
+        tri_floor = Delaunay(floor_verts[:, :2])
+        floor_faces = tri_floor.simplices + M  # offset into vertex array
+        if max_edge_length is not None:
+            floor_faces = floor_faces[_filter_long_edges(vertices, floor_faces, max_edge_length)]
+    else:
+        floor_faces = np.empty((0, 3), dtype=np.int32)
+
+    # ── Combine and export ────────────────────────────────────────────
+    all_faces = np.vstack([top_faces, sidewall_faces, floor_faces])
+
+    # Use Open3D for export — it computes vertex normals without requiring
+    # networkx (which trimesh.fix_normals needs but isn't installed).
+    o3d_mesh = o3d.geometry.TriangleMesh()
+    o3d_mesh.vertices = o3d.utility.Vector3dVector(vertices)
+    o3d_mesh.triangles = o3d.utility.Vector3iVector(all_faces)
+    o3d_mesh.compute_vertex_normals()
+    o3d.io.write_triangle_mesh(str(output_path), o3d_mesh)
     return output_path

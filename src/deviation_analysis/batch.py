@@ -21,6 +21,7 @@ from deviation_analysis.deviation import (
     compute_signed_distances,
 )
 from deviation_analysis.loader import (
+    build_sidewalled_mesh,
     height_correct,
     load_cad_mesh,
     load_scan_csv,
@@ -29,7 +30,7 @@ from deviation_analysis.loader import (
     raster_to_point_cloud,
     save_points_as_stl,
 )
-from deviation_analysis.smoothing import smooth_anisotropic_grid
+from deviation_analysis.smoothing import add_sidewalls, smooth_anisotropic_grid
 from deviation_analysis.registration import (
     flatten_point_cloud,
     register_scan_to_cad,
@@ -87,8 +88,9 @@ def process_single_scan(
     # Smoothing state affects registration and distance results, so encode
     # it in the cache suffix to avoid stale hits when toggling use_smoothed.
     _sc = config.smoothing
+    _sw = "sw" if _sc.add_sidewalls else "nosw"
     _smooth_tag = (
-        f"_sm{_sc.sigma_scan}_{_sc.sigma_perp}_{_sc.n_iterations}"
+        f"_sm{_sc.sigma_scan}_{_sc.sigma_perp}_{_sc.n_iterations}_{_sw}"
         if _sc.enabled and _sc.use_smoothed
         else "_raw"
     )
@@ -175,6 +177,35 @@ def process_single_scan(
         # Select which points downstream stages use
         if smooth_cfg.use_smoothed:
             bead_points = smoothed_bead_points
+
+    # --- Stage 3.6: Add sidewalls ---
+    if smooth_cfg.enabled and smooth_cfg.add_sidewalls:
+        n_rows, n_cols = data_corrected.shape
+        bead_points_surface = bead_points  # M-point surface, before sidewall augmentation
+
+        bead_points = add_sidewalls(
+            bead_points,
+            bead_mask=bead_mask,
+            n_rows=n_rows,
+            n_cols=n_cols,
+            flat_points=flat_points,
+            z_step=smooth_cfg.sidewall_z_step,
+            floor_z=0.0,
+        )
+
+        # Export sidewalled mesh as STL (explicit top + sidewalls + floor).
+        # Include _smooth_tag in filename so raw/smoothed passes don't collide.
+        sw_stl = out / f"{stem}_sidewalled_bead{_smooth_tag}.stl"
+        if not sw_stl.exists():
+            build_sidewalled_mesh(
+                bead_points=bead_points_surface,
+                bead_mask=bead_mask,
+                n_rows=n_rows,
+                n_cols=n_cols,
+                output_path=sw_stl,
+                floor_z=0.0,
+                max_edge_length=0.5,
+            )
 
     # --- Stage 4: Register bead to CAD mesh ---
     reg_key = cache_key(scan_csv, f"register{_smooth_tag}")
