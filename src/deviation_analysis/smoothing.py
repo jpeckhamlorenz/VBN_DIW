@@ -14,7 +14,15 @@ for arbitrary (non-grid) point clouds.
 from __future__ import annotations
 
 import numpy as np
-from scipy.ndimage import binary_erosion, gaussian_filter, label
+from scipy.ndimage import (
+    binary_closing,
+    binary_erosion,
+    binary_fill_holes,
+    distance_transform_edt,
+    gaussian_filter,
+    generate_binary_structure,
+    label,
+)
 from scipy.spatial import cKDTree
 
 
@@ -112,6 +120,32 @@ def smooth_anisotropic_grid(
     return bead_points
 
 
+# ── Outer-edge helper ────────────────────────────────────────────────
+
+
+def outer_edge_mask(mask_2d: np.ndarray) -> np.ndarray:
+    """Compute outer-perimeter edge mask, ignoring internal holes.
+
+    Fills internal holes in the mask with :func:`binary_fill_holes`
+    before erosion-based edge detection, so only the true outer boundary
+    is returned.
+
+    Parameters
+    ----------
+    mask_2d
+        (rows, cols) bool mask of the bead region.
+
+    Returns
+    -------
+    edge_2d : (rows, cols) bool
+        True at outer-boundary pixels only.
+    """
+    filled = binary_fill_holes(mask_2d)
+    struct4 = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
+    eroded = binary_erosion(filled, structure=struct4)
+    return filled & ~eroded
+
+
 # ── Island removal ───────────────────────────────────────────────────
 
 
@@ -120,10 +154,27 @@ def remove_islands(
     bead_mask: np.ndarray,
     n_rows: int,
     n_cols: int,
+    closing_radius: int = 1,
+    min_distance: float = 2.0,
+    x_spacing: float = 0.02,
+    y_spacing: float = 0.02,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Keep only the largest connected component of the bead mask.
+    """Remove distant isolated components from the bead mask.
 
-    Uses 4-connected component labelling on the 2-D raster grid.
+    Preprocessing steps before connected-component labeling:
+
+    1. **Fill internal holes** — :func:`binary_fill_holes` prevents
+       small NaN pockets from fragmenting the mask.
+    2. **Morphological closing** — bridges narrow 1–2 pixel gaps so
+       slightly disconnected regions merge with the main body.
+    3. **8-connected labeling** — more permissive than 4-connected,
+       allows diagonal adjacency.
+
+    After labeling, the largest component is always kept.  Smaller
+    components are retained if their closest pixel is within
+    *min_distance* (mm) of the largest component.  The final mask is
+    intersected with the **original** (un-filled, un-closed) bead mask
+    so only real data pixels survive.
 
     Parameters
     ----------
@@ -133,34 +184,65 @@ def remove_islands(
         (N,) bool mask over the full flattened grid.
     n_rows, n_cols
         Raster grid dimensions.
+    closing_radius
+        Structuring-element radius (grid cells) for morphological
+        closing before labeling.  Set to 0 to disable.
+    min_distance
+        Maximum distance (mm) from the largest component for a smaller
+        component to be retained.
+    x_spacing
+        Grid spacing along X (mm) — column direction.
+    y_spacing
+        Grid spacing along Y (mm) — row direction.
 
     Returns
     -------
     filtered_points : (M', 3)
-        Bead points belonging to the largest connected component.
+        Bead points belonging to retained components.
     filtered_mask : (N,) bool
-        Updated bead mask with islands removed.
+        Updated bead mask with distant islands removed.
     """
     mask_2d = bead_mask.reshape(n_rows, n_cols)
 
-    # 4-connected labelling
-    struct4 = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
-    labelled, n_components = label(mask_2d, structure=struct4)
+    # --- Preprocessing: fill holes + morphological closing ---
+    preprocessed = binary_fill_holes(mask_2d)
+    if closing_radius > 0:
+        r = closing_radius
+        y, x = np.ogrid[-r:r + 1, -r:r + 1]
+        disk = (x * x + y * y) <= r * r
+        preprocessed = binary_closing(preprocessed, structure=disk)
+
+    # --- 8-connected labeling ---
+    struct8 = np.ones((3, 3), dtype=np.int32)
+    labelled, n_components = label(preprocessed, structure=struct8)
 
     if n_components <= 1:
         return bead_points, bead_mask
 
-    # Find the largest component
+    # --- Identify largest component ---
     component_sizes = np.bincount(labelled.ravel())
     component_sizes[0] = 0  # ignore background
     largest = component_sizes.argmax()
+    largest_mask = labelled == largest
 
-    # Build filtered mask
-    keep_2d = labelled == largest
+    # --- Distance-based retention of smaller components ---
+    dist_map = distance_transform_edt(~largest_mask, sampling=[y_spacing, x_spacing])
+
+    keep_2d = largest_mask.copy()
+    n_kept = 1
+    for comp_id in range(1, n_components + 1):
+        if comp_id == largest:
+            continue
+        comp_pixels = labelled == comp_id
+        closest_dist = dist_map[comp_pixels].min()
+        if closest_dist <= min_distance:
+            keep_2d |= comp_pixels
+            n_kept += 1
+
+    # Intersect with original bead_mask (only real data pixels)
     filtered_mask = keep_2d.ravel() & bead_mask
 
-    # Filter bead_points: bead_points[k] corresponds to the k-th True in bead_mask.
-    # We need to keep only those where filtered_mask is also True.
+    # Filter bead_points
     bead_indices = np.flatnonzero(bead_mask)
     keep_points = filtered_mask[bead_indices]
     filtered_points = bead_points[keep_points]
@@ -168,7 +250,8 @@ def remove_islands(
     n_removed = len(bead_points) - len(filtered_points)
     if n_removed > 0:
         print(f"    Removed {n_removed:,} island points "
-              f"({n_components - 1} components, kept largest)")
+              f"({n_components} components, kept {n_kept}, "
+              f"removed {n_components - n_kept})")
 
     return filtered_points, filtered_mask
 
@@ -215,11 +298,8 @@ def add_sidewalls(
     """
     mask_2d = bead_mask.reshape(n_rows, n_cols)
 
-    # Edge detection: bead pixels with at least one non-bead 4-neighbour
-    eroded = binary_erosion(mask_2d, structure=np.array([[0, 1, 0],
-                                                          [1, 1, 1],
-                                                          [0, 1, 0]]))
-    edge_2d = mask_2d & ~eroded  # boundary ring
+    # Outer-perimeter edge detection (ignores internal holes)
+    edge_2d = outer_edge_mask(mask_2d)
 
     # Map from flattened grid index → bead_points row index
     # bead_points[k] corresponds to flat_points[bead_indices[k]]

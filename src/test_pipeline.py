@@ -43,8 +43,8 @@ SHOW_PLOTS = True  # Set False to only save PNGs and skip interactive display
 
 
 DATA_DIR = Path('demos/m')
-SCAN_CSV = DATA_DIR / 'm_static_ideal_cycle_001.csv'
-TOOLPATH_CSV = DATA_DIR / 'm_static_ideal.csv'
+SCAN_CSV = DATA_DIR / 'm_VBN_2_cycle_002.csv'
+TOOLPATH_CSV = DATA_DIR / 'm_VBN_2.csv'
 STL_FILE = DATA_DIR / 'm_ideal.stl'
 OUTPUT_DIR = Path('deviation_analysis/output/test')
 CACHE_DIR = Path('deviation_analysis/cache/test')
@@ -325,9 +325,19 @@ if RUN_STAGE_5B_SMOOTH:
             print('  use_smoothed=False — keeping raw points for downstream stages')
 
         # --- Island removal ---
+        bead_mask_pre_island = bead_mask.copy()  # save for STL re-run below
         if smooth_config.remove_islands:
             n_before = len(bead_points)
-            bead_points, bead_mask = remove_islands(bead_points, bead_mask, n_rows, n_cols)
+            bead_points, bead_mask = remove_islands(
+                bead_points,
+                bead_mask,
+                n_rows,
+                n_cols,
+                closing_radius=smooth_config.island_closing_radius,
+                min_distance=smooth_config.island_min_distance,
+                x_spacing=scan_config.resolution,
+                y_spacing=scan_config.slice_thickness,
+            )
             n_removed = n_before - len(bead_points)
             print(f'  Island removal: {n_removed:,} points removed, {len(bead_points):,} remaining')
 
@@ -362,12 +372,22 @@ if RUN_STAGE_5B_SMOOTH:
             surface_pts = bead_points_smoothed if smooth_config.use_smoothed else bead_points_raw
             # Re-apply island removal to surface points if needed
             if smooth_config.remove_islands:
-                surface_pts_clean, _ = remove_islands(surface_pts, bead_mask, n_rows, n_cols)
+                surface_pts_clean, bead_mask_for_mesh = remove_islands(
+                    surface_pts,
+                    bead_mask_pre_island,
+                    n_rows,
+                    n_cols,
+                    closing_radius=smooth_config.island_closing_radius,
+                    min_distance=smooth_config.island_min_distance,
+                    x_spacing=scan_config.resolution,
+                    y_spacing=scan_config.slice_thickness,
+                )
             else:
                 surface_pts_clean = surface_pts
+                bead_mask_for_mesh = bead_mask
             build_sidewalled_mesh(
                 bead_points=surface_pts_clean,
-                bead_mask=bead_mask,
+                bead_mask=bead_mask_for_mesh,
                 n_rows=n_rows,
                 n_cols=n_cols,
                 output_path=stl_sw,

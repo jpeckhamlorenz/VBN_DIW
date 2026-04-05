@@ -191,7 +191,11 @@ def process_one_method(
         print(f'    Smoothed (σ_scan={SMOOTH_CONFIG.sigma_scan}, σ_perp={SMOOTH_CONFIG.sigma_perp})')
         if SMOOTH_CONFIG.remove_islands:
             bead_points, bead_mask = remove_islands(
-                bead_points, bead_mask, n_rows, n_cols
+                bead_points, bead_mask, n_rows, n_cols,
+                closing_radius=SMOOTH_CONFIG.island_closing_radius,
+                min_distance=SMOOTH_CONFIG.island_min_distance,
+                x_spacing=SCAN_CONFIG.resolution,
+                y_spacing=SCAN_CONFIG.slice_thickness,
             )
         if SMOOTH_CONFIG.add_sidewalls:
             bead_points = add_sidewalls(

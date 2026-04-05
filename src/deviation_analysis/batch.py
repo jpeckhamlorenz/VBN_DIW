@@ -88,7 +88,10 @@ def process_single_scan(
     # Smoothing state affects registration and distance results, so encode
     # it in the cache suffix to avoid stale hits when toggling use_smoothed.
     _sc = config.smoothing
-    _ri = "ri" if _sc.remove_islands else "nori"
+    _ri = (
+        f"ri{_sc.island_closing_radius}d{_sc.island_min_distance}"
+        if _sc.remove_islands else "nori"
+    )
     _sw = "sw" if _sc.add_sidewalls else "nosw"
     _smooth_tag = (
         f"_sm{_sc.sigma_scan}_{_sc.sigma_perp}_{_sc.n_iterations}_{_ri}_{_sw}"
@@ -183,7 +186,11 @@ def process_single_scan(
     if smooth_cfg.enabled and smooth_cfg.remove_islands:
         n_rows, n_cols = data_corrected.shape
         bead_points, bead_mask = remove_islands(
-            bead_points, bead_mask, n_rows, n_cols
+            bead_points, bead_mask, n_rows, n_cols,
+            closing_radius=smooth_cfg.island_closing_radius,
+            min_distance=smooth_cfg.island_min_distance,
+            x_spacing=config.scan.resolution,
+            y_spacing=config.scan.slice_thickness,
         )
 
     # --- Stage 3.7: Add sidewalls ---

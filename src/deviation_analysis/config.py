@@ -110,8 +110,15 @@ class SmoothingConfig:
     If False, smoothing still runs and STLs are exported but pipeline uses raw."""
 
     remove_islands: bool = True
-    """Remove small disconnected islands from the bead mask, keeping only the
-    largest connected component."""
+    """Remove small disconnected islands from the bead mask."""
+
+    island_closing_radius: int = 1
+    """Morphological closing radius (grid cells) applied before connected-
+    component labeling to bridge narrow 1–2 pixel gaps.  Set to 0 to disable."""
+
+    island_min_distance: float = 2.0
+    """Maximum distance (mm) from the largest component for a smaller component
+    to be retained.  Components farther away are removed as true islands."""
 
     add_sidewalls: bool = True
     """Add vertical sidewall points from bead edges down to the floor plane."""

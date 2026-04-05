@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import open3d as o3d
 from scipy.interpolate import interp1d
-from scipy.ndimage import binary_erosion
+from scipy.ndimage import binary_erosion, binary_fill_holes
 from scipy.spatial import Delaunay
 
 from deviation_analysis.config import ScanConfig
@@ -221,6 +221,32 @@ def _filter_long_edges(
     return np.maximum(np.maximum(e0, e1), e2) <= max_edge_length
 
 
+def _fix_winding(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    desired_z_sign: float,
+) -> np.ndarray:
+    """Flip triangle winding so face normals have the desired Z sign.
+
+    Parameters
+    ----------
+    vertices
+        (V, 3) vertex array.
+    faces
+        (F, 3) int face array (modified in-place and returned).
+    desired_z_sign
+        +1.0 for upward-facing normals, −1.0 for downward-facing.
+    """
+    if len(faces) == 0:
+        return faces
+    faces = faces.copy()
+    v = vertices[faces]
+    nz = np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0])[:, 2]
+    flip = (nz * desired_z_sign) < 0
+    faces[flip] = faces[flip][:, ::-1]
+    return faces
+
+
 def save_points_as_stl(
     points: np.ndarray,
     output_path: Path,
@@ -329,11 +355,11 @@ def build_sidewalled_mesh(
 
     M = len(bead_points)
 
-    # ── Edge detection (same pattern as smoothing.add_sidewalls) ──────
+    # ── Edge detection (outer perimeter only, ignores internal holes) ─
+    from deviation_analysis.smoothing import outer_edge_mask
+
     mask_2d = bead_mask.reshape(n_rows, n_cols)
-    struct4 = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
-    eroded = binary_erosion(mask_2d, structure=struct4)
-    edge_2d = mask_2d & ~eroded
+    edge_2d = outer_edge_mask(mask_2d)
 
     bead_indices = np.flatnonzero(bead_mask)
     flat_to_bead = np.full(n_rows * n_cols, -1, dtype=np.intp)
@@ -400,8 +426,28 @@ def build_sidewalled_mesh(
         floor_faces = tri_floor.simplices + M  # offset into vertex array
         if max_edge_length is not None:
             floor_faces = floor_faces[_filter_long_edges(vertices, floor_faces, max_edge_length)]
+
+        # Remove floor triangles whose centroid falls outside the bead
+        # footprint — Delaunay fills the convex hull, which spans across
+        # concavities of shapes like "M".
+        if len(floor_faces) > 0:
+            filled = binary_fill_holes(mask_2d)
+            local_faces = floor_faces - M  # back to 0-based edge indices
+            edge_rows = edge_flat_indices // n_cols
+            edge_cols = edge_flat_indices % n_cols
+            crows = np.round(edge_rows[local_faces].mean(axis=1)).astype(int)
+            ccols = np.round(edge_cols[local_faces].mean(axis=1)).astype(int)
+            crows = np.clip(crows, 0, n_rows - 1)
+            ccols = np.clip(ccols, 0, n_cols - 1)
+            floor_faces = floor_faces[filled[crows, ccols]]
     else:
         floor_faces = np.empty((0, 3), dtype=np.int32)
+
+    # ── Fix winding order ────────────────────────────────────────────
+    # Ensure top faces point +Z (outward), floor faces point −Z.
+    top_faces = _fix_winding(vertices, top_faces, desired_z_sign=+1.0)
+    if len(floor_faces) > 0:
+        floor_faces = _fix_winding(vertices, floor_faces, desired_z_sign=-1.0)
 
     # ── Combine and export ────────────────────────────────────────────
     all_faces = np.vstack([top_faces, sidewall_faces, floor_faces])
