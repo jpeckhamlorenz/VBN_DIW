@@ -851,10 +851,10 @@ if __name__ == '__main__':
     # sealant_static use cycle 3
     # sealant_VBN use cycle 1
 
-    demo = 'm'
-    nozzle = 'VBN_05'
+    demo = 'sealant'
+    nozzle = 'VBN'
     cycle = 1
-    folderpath = 'demos/m'
+    folderpath = 'demos/sealant'
 
     # filename = 'm_static_naive_cycle_002.csv'
     # toolname = 'm_static_naive.csv'

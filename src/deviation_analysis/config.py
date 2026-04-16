@@ -39,7 +39,7 @@ class RegistrationConfig:
     plane_ransac_residual_threshold: float = 0.05
     """Residual threshold in mm for RANSAC plane inlier classification."""
 
-    bed_z_threshold: float = 0.15
+    bed_z_threshold: float = 0.2
     """Z height in mm above flattened bed plane to separate bead from bed.
     Used as fallback if RANSAC inlier/outlier segmentation is insufficient."""
 
@@ -75,7 +75,7 @@ class RegistrationConfig:
     This closes the open scan surface to better match the closed CAD mesh,
     giving FPFH features more geometric contrast for thin/flat parts."""
 
-    random_seed: int | None = 42
+    random_seed: int | None = 420
     """Random seed for RANSAC operations (sklearn + Open3D). None = non-deterministic."""
 
 

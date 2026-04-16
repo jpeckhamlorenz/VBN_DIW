@@ -72,6 +72,7 @@ STL_OUTPUT_DIR = OUTPUT_DIR / 'scan_stls'
 # Change these to compare different scans or methods.
 # VBN (v5) is the primary method; the rest are baselines.
 METHODS = [
+    ('VBN (v9)', 'm_VBN_09_cycle_003.csv', 'm_VBN_05.csv'),
     ('VBN (v5)', 'm_VBN_05_cycle_001.csv', 'm_VBN_05.csv'),
     ('VBN (v2)', 'm_VBN_2_cycle_002.csv', 'm_VBN_2.csv'),
     ('Static ideal', 'm_static_ideal_cycle_001.csv', 'm_static_ideal.csv'),
@@ -191,7 +192,10 @@ def process_one_method(
         print(f'    Smoothed (σ_scan={SMOOTH_CONFIG.sigma_scan}, σ_perp={SMOOTH_CONFIG.sigma_perp})')
         if SMOOTH_CONFIG.remove_islands:
             bead_points, bead_mask = remove_islands(
-                bead_points, bead_mask, n_rows, n_cols,
+                bead_points,
+                bead_mask,
+                n_rows,
+                n_cols,
                 closing_radius=SMOOTH_CONFIG.island_closing_radius,
                 min_distance=SMOOTH_CONFIG.island_min_distance,
                 x_spacing=SCAN_CONFIG.resolution,

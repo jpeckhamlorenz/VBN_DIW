@@ -40,17 +40,29 @@ SHOW_PLOTS = True  # Set False to only save PNGs and skip interactive display
 # m_static_ideal use cycle 1
 # m_VBN_2 use cycle 2
 # m_VBN_05 use cycle 1
+# m_VBN_08 use cycle 3 (5mm/s)
+# m_VBN_08 use cycle 5 (10mm/s)
+# m_VBN_08 use cycle 9 (15mm/s)
+# m_VBN_09 use cycle 2 (5mm/s)
+# m_VBN_09 use cycle 4 (10mm/s)
+
+# sealant_static use cycle 3
+# sealant_VBN use cycle 1
+# sealant_VBN_2 cycle 1,2,3 are 5mm/s, cycle 4 is 10mm/s, cycle 5 is 15mm/s
+
+# corner_VBN use cycle 7
 
 
 DATA_DIR = Path('demos/m')
-SCAN_CSV = DATA_DIR / 'm_VBN_2_cycle_002.csv'
-TOOLPATH_CSV = DATA_DIR / 'm_VBN_2.csv'
+SCAN_CSV = DATA_DIR / 'm_VBN_09_cycle_003.csv'
+TOOLPATH_CSV = DATA_DIR / 'm_VBN_05.csv'
 STL_FILE = DATA_DIR / 'm_ideal.stl'
 OUTPUT_DIR = Path('deviation_analysis/output/test')
 CACHE_DIR = Path('deviation_analysis/cache/test')
 
 # Map toolpath stem to display name (must match compare_methods.py METHODS list)
 METHOD_NAMES = {
+    'm_VBN_09': 'VBN (v9)',
     'm_VBN_05': 'VBN (v5)',
     'm_VBN_2': 'VBN (v2)',
     'm_static_ideal': 'Static ideal',
