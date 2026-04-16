@@ -13,8 +13,14 @@ class ScanConfig:
     resolution: float = 0.02
     """Column spacing in mm (Keyence profiler pixel pitch)."""
 
-    scan_speed: float = 5.0
-    """Scan speed in mm/s. Used to compute Y-axis spacing."""
+    scan_speed: float = 10.0
+    """Nominal scan speed in mm/s.
+
+    Informational only — the deviation pipeline derives actual Y row spacing
+    from the toolpath CSV (see ``loader.compute_y_spacing``), so this field
+    does not need to match the physical robot speed of any given scan. Mixed-
+    speed comparison runs are safe regardless of this value.
+    """
 
     scan_rate: float = 1000.0
     """Scan rate in Hz."""
@@ -27,7 +33,12 @@ class ScanConfig:
 
     @property
     def slice_thickness(self) -> float:
-        """Y-axis spacing between scan rows in mm."""
+        """
+        Nominal Y-axis spacing between scan rows in mm.
+
+        Kept for backward compatibility; the pipeline uses the toolpath-derived
+        ``loader.compute_y_spacing(toolpath_xyz, num_rows)`` instead.
+        """
         return self.scan_speed / self.scan_rate
 
 

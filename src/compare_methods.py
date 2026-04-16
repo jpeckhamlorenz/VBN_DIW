@@ -38,6 +38,7 @@ from deviation_analysis.deviation import (
     compute_signed_distances,
 )
 from deviation_analysis.loader import (
+    compute_y_spacing,
     height_correct,
     load_cad_mesh,
     load_scan_csv,
@@ -159,6 +160,10 @@ def process_one_method(
     _time, toolpath_xyz = load_toolpath_csv(tool_path)
     print(f'    Loaded raster: {data_mm.shape[0]} rows x {data_mm.shape[1]} cols')
 
+    # Physical Y row spacing from toolpath (handles mixed scan speeds correctly)
+    y_spacing = compute_y_spacing(toolpath_xyz, data_mm.shape[0])
+    print(f'    Y row spacing: {y_spacing:.5f} mm (from toolpath)')
+
     # 2. Height correct + point cloud
     data_corrected = height_correct(data_mm, toolpath_xyz)
     points, valid_mask = raster_to_point_cloud(data_corrected, toolpath_xyz, SCAN_CONFIG)
@@ -186,7 +191,7 @@ def process_one_method(
             sigma_perp=SMOOTH_CONFIG.sigma_perp,
             scan_direction=np.array(SMOOTH_CONFIG.scan_direction),
             x_spacing=SCAN_CONFIG.resolution,
-            y_spacing=SCAN_CONFIG.slice_thickness,
+            y_spacing=y_spacing,
             n_iterations=SMOOTH_CONFIG.n_iterations,
         )
         print(f'    Smoothed (σ_scan={SMOOTH_CONFIG.sigma_scan}, σ_perp={SMOOTH_CONFIG.sigma_perp})')
@@ -199,7 +204,7 @@ def process_one_method(
                 closing_radius=SMOOTH_CONFIG.island_closing_radius,
                 min_distance=SMOOTH_CONFIG.island_min_distance,
                 x_spacing=SCAN_CONFIG.resolution,
-                y_spacing=SCAN_CONFIG.slice_thickness,
+                y_spacing=y_spacing,
             )
         if SMOOTH_CONFIG.add_sidewalls:
             bead_points = add_sidewalls(
@@ -227,7 +232,7 @@ def process_one_method(
     print(f'    Distances: mean={signed_distances.mean():.4f}, std={signed_distances.std():.4f} mm')
 
     # 8. Metrics
-    point_area = SCAN_CONFIG.resolution * SCAN_CONFIG.slice_thickness
+    point_area = SCAN_CONFIG.resolution * y_spacing
     metrics = compute_metrics(signed_distances, point_area, DEV_CONFIG)
 
     return MethodResult(

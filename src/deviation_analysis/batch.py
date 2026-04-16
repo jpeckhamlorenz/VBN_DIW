@@ -22,6 +22,7 @@ from deviation_analysis.deviation import (
 )
 from deviation_analysis.loader import (
     build_sidewalled_mesh,
+    compute_y_spacing,
     height_correct,
     load_cad_mesh,
     load_scan_csv,
@@ -43,6 +44,27 @@ from deviation_analysis.visualization import (
     plot_metrics_summary_table,
     plot_spatial_deviation_map,
 )
+
+
+def _smoothing_cache_tag(smoothing_cfg, y_spacing: float) -> str:
+    """Build cache-key suffix encoding smoothing + actual Y row spacing.
+
+    ``y_spacing`` is embedded so scans at different robot speeds (which
+    produce different smoothed outputs even for identical ``SmoothingConfig``)
+    don't collide on the same cache entry.
+    """
+    sc = smoothing_cfg
+    if not (sc.enabled and sc.use_smoothed):
+        return "_raw"
+    _ri = (
+        f"ri{sc.island_closing_radius}d{sc.island_min_distance}"
+        if sc.remove_islands else "nori"
+    )
+    _sw = "sw" if sc.add_sidewalls else "nosw"
+    return (
+        f"_sm{sc.sigma_scan}_{sc.sigma_perp}_{sc.n_iterations}"
+        f"_{_ri}_{_sw}_y{y_spacing:.5f}"
+    )
 
 
 def process_single_scan(
@@ -83,21 +105,19 @@ def process_single_scan(
     """
     cache_dir = config.cache_dir
     reg_config = config.registration
-    point_area = config.scan.resolution * config.scan.slice_thickness
 
-    # Smoothing state affects registration and distance results, so encode
-    # it in the cache suffix to avoid stale hits when toggling use_smoothed.
-    _sc = config.smoothing
-    _ri = (
-        f"ri{_sc.island_closing_radius}d{_sc.island_min_distance}"
-        if _sc.remove_islands else "nori"
-    )
-    _sw = "sw" if _sc.add_sidewalls else "nosw"
-    _smooth_tag = (
-        f"_sm{_sc.sigma_scan}_{_sc.sigma_perp}_{_sc.n_iterations}_{_ri}_{_sw}"
-        if _sc.enabled and _sc.use_smoothed
-        else "_raw"
-    )
+    # --- Stage 1: Load CSVs (needed up front to derive y_spacing) ---
+    data_mm = load_scan_csv(scan_csv, config.scan)
+    _time, toolpath_xyz = load_toolpath_csv(toolpath_csv)
+
+    # Physical Y row spacing derived from the toolpath's actual coverage and
+    # the scan's real row count — independent of nominal ``scan_speed``.
+    y_spacing = compute_y_spacing(toolpath_xyz, data_mm.shape[0])
+    point_area = config.scan.resolution * y_spacing
+
+    # Smoothing state + y_spacing affect registration and distance results,
+    # so encode both in the cache suffix to avoid stale hits.
+    _smooth_tag = _smoothing_cache_tag(config.smoothing, y_spacing)
 
     # --- Check for final cached result ---
     dist_key = cache_key(scan_csv, f"distances{_smooth_tag}")
@@ -107,9 +127,6 @@ def process_single_scan(
         metrics = compute_metrics(signed_distances, point_area, config.deviation)
         return signed_distances, metrics
 
-    # --- Stage 1: Load and preprocess ---
-    data_mm = load_scan_csv(scan_csv, config.scan)
-    _time, toolpath_xyz = load_toolpath_csv(toolpath_csv)
     data_corrected = height_correct(data_mm, toolpath_xyz)
     points, valid_mask = raster_to_point_cloud(data_corrected, toolpath_xyz, config.scan)
 
@@ -142,7 +159,7 @@ def process_single_scan(
         sc = smooth_cfg
         smooth_key = cache_key(
             scan_csv,
-            f"smooth_s{sc.sigma_scan}_p{sc.sigma_perp}_n{sc.n_iterations}",
+            f"smooth_s{sc.sigma_scan}_p{sc.sigma_perp}_n{sc.n_iterations}_y{y_spacing:.5f}",
         )
         cached_smooth = load_cache(cache_dir, smooth_key, source_path=scan_csv)
         if cached_smooth is not None:
@@ -159,7 +176,7 @@ def process_single_scan(
                 sigma_perp=sc.sigma_perp,
                 scan_direction=np.array(sc.scan_direction),
                 x_spacing=config.scan.resolution,
-                y_spacing=config.scan.slice_thickness,
+                y_spacing=y_spacing,
                 n_iterations=sc.n_iterations,
             )
             save_cache(
@@ -190,7 +207,7 @@ def process_single_scan(
             closing_radius=smooth_cfg.island_closing_radius,
             min_distance=smooth_cfg.island_min_distance,
             x_spacing=config.scan.resolution,
-            y_spacing=config.scan.slice_thickness,
+            y_spacing=y_spacing,
         )
 
     # --- Stage 3.7: Add sidewalls ---
@@ -342,14 +359,14 @@ def run_batch(config: PipelineConfig) -> dict[str, dict]:
         exemplar_distances[method.display_name] = distances
         exemplar_metrics[method.display_name] = metrics
 
-        # Load aligned bead points from cache for deviation map
-        _sc = config.smoothing
-        _smooth_tag = (
-            f"_sm{_sc.sigma_scan}_{_sc.sigma_perp}_{_sc.n_iterations}"
-            if _sc.enabled and _sc.use_smoothed
-            else "_raw"
-        )
-        dist_key = cache_key(config.scan_path(first_cycle), f"distances{_smooth_tag}")
+        # Rebuild the same cache key process_single_scan used, including the
+        # per-scan y_spacing embedded in the smoothing tag.
+        first_cycle_path = config.scan_path(first_cycle)
+        _data_mm = load_scan_csv(first_cycle_path, config.scan)
+        _, _toolpath_xyz = load_toolpath_csv(config.scan_path(method.toolpath_csv))
+        _y_spacing = compute_y_spacing(_toolpath_xyz, _data_mm.shape[0])
+        _smooth_tag = _smoothing_cache_tag(config.smoothing, _y_spacing)
+        dist_key = cache_key(first_cycle_path, f"distances{_smooth_tag}")
         cached = load_cache(config.cache_dir, dist_key)
         if cached is not None and "aligned_bead_points" in cached:
             exemplar_aligned_points[method.display_name] = cached["aligned_bead_points"]

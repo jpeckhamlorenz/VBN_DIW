@@ -102,7 +102,7 @@ def compute_metrics(
         (M,) signed distances in mm.
     point_area
         Approximate surface area represented by each scan point in mm^2.
-        For raster data: resolution * slice_thickness.
+        For raster data: ``ScanConfig.resolution * compute_y_spacing(toolpath, num_rows)``.
     config
         Deviation configuration (percentile threshold, etc.).
 

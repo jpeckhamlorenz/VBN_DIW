@@ -97,6 +97,31 @@ def _upsample_toolpath(
     return interp_func(np.linspace(0, 1, num_rows))
 
 
+def compute_y_spacing(toolpath_xyz: np.ndarray, num_rows: int) -> float:
+    """Compute physical Y-row spacing (mm) from the toolpath.
+
+    This is the actual scan-direction grid pitch, derived from the toolpath
+    upsampled to match the scan row count.  Independent of any nominal
+    ``ScanConfig.scan_speed``, so it remains correct for scans taken at
+    different robot speeds that share the same toolpath file.
+
+    Parameters
+    ----------
+    toolpath_xyz
+        (N, 3) toolpath coordinates.
+    num_rows
+        Number of scan rows (``data_mm.shape[0]``).
+
+    Returns
+    -------
+    float
+        Mean absolute Y spacing between consecutive upsampled rows, in mm.
+    """
+    toolpath_up = _upsample_toolpath(toolpath_xyz, num_rows)
+    dy = np.diff(toolpath_up[:, 1])
+    return float(np.abs(dy).mean())
+
+
 def height_correct(
     data_mm: np.ndarray,
     toolpath_xyz: np.ndarray,

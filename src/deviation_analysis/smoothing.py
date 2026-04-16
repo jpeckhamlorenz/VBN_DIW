@@ -67,7 +67,7 @@ def smooth_anisotropic_grid(
     x_spacing
         Grid spacing along X (mm) — ``ScanConfig.resolution``.
     y_spacing
-        Grid spacing along Y (mm) — ``ScanConfig.slice_thickness``.
+        Grid spacing along Y (mm) — toolpath-derived via ``loader.compute_y_spacing``.
     n_iterations
         Number of smoothing passes.
 

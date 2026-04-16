@@ -54,9 +54,9 @@ SHOW_PLOTS = True  # Set False to only save PNGs and skip interactive display
 
 
 DATA_DIR = Path('demos/m')
-SCAN_CSV = DATA_DIR / 'm_VBN_09_cycle_003.csv'
+SCAN_CSV = DATA_DIR / 'm_VBN_05_cycle_001.csv'
 TOOLPATH_CSV = DATA_DIR / 'm_VBN_05.csv'
-STL_FILE = DATA_DIR / 'm_ideal.stl'
+STL_FILE = DATA_DIR / 'm_ideal_shifted.stl'
 OUTPUT_DIR = Path('deviation_analysis/output/test')
 CACHE_DIR = Path('deviation_analysis/cache/test')
 
@@ -92,7 +92,7 @@ if RUN_STAGE_1_LOAD:
     _separator(1, 'Load scan CSV + toolpath')
 
     from deviation_analysis.config import ScanConfig
-    from deviation_analysis.loader import load_scan_csv, load_toolpath_csv
+    from deviation_analysis.loader import compute_y_spacing, load_scan_csv, load_toolpath_csv
 
     scan_config = ScanConfig()  # defaults: resolution=0.02, scan_speed=5.0, etc.
 
@@ -101,6 +101,11 @@ if RUN_STAGE_1_LOAD:
 
     data_mm = load_scan_csv(SCAN_CSV, scan_config)
     time_arr, toolpath_xyz = load_toolpath_csv(TOOLPATH_CSV)
+
+    # Derive actual Y row spacing from the toolpath — independent of the
+    # nominal scan_speed in ScanConfig, so it's correct even for scans
+    # taken at a different robot speed than the config suggests.
+    y_spacing = compute_y_spacing(toolpath_xyz, data_mm.shape[0])
 
     print(f'  Scan data shape:     {data_mm.shape}  (rows x cols)')
     print(f'  Toolpath shape:      {toolpath_xyz.shape}')
@@ -164,9 +169,13 @@ if RUN_STAGE_3_POINT_CLOUD:
     for ax, label in enumerate(['X', 'Y', 'Z']):
         print(f'    {label}: [{valid_points[:, ax].min():.3f}, {valid_points[:, ax].max():.3f}] mm')
     print(
-        f'  Point area (res x slice_thickness): '
-        f'{scan_config.resolution} x {scan_config.slice_thickness:.4f} '
-        f'= {scan_config.resolution * scan_config.slice_thickness:.6f} mm²'
+        f'  Point area (res x y_spacing): '
+        f'{scan_config.resolution} x {y_spacing:.5f} '
+        f'= {scan_config.resolution * y_spacing:.6f} mm²'
+    )
+    print(
+        f'  (Nominal scan_config.slice_thickness = {scan_config.slice_thickness:.5f} mm; '
+        f'actual y_spacing from toolpath = {y_spacing:.5f} mm)'
     )
 
     # 3D scatter of subsampled points
@@ -323,7 +332,7 @@ if RUN_STAGE_5B_SMOOTH:
             sigma_perp=smooth_config.sigma_perp,
             scan_direction=np.array(smooth_config.scan_direction),
             x_spacing=scan_config.resolution,
-            y_spacing=scan_config.slice_thickness,
+            y_spacing=y_spacing,
             n_iterations=smooth_config.n_iterations,
         )
         print(f'  Smoothed: σ_scan={smooth_config.sigma_scan}, σ_perp={smooth_config.sigma_perp}')
@@ -348,7 +357,7 @@ if RUN_STAGE_5B_SMOOTH:
                 closing_radius=smooth_config.island_closing_radius,
                 min_distance=smooth_config.island_min_distance,
                 x_spacing=scan_config.resolution,
-                y_spacing=scan_config.slice_thickness,
+                y_spacing=y_spacing,
             )
             n_removed = n_before - len(bead_points)
             print(f'  Island removal: {n_removed:,} points removed, {len(bead_points):,} remaining')
@@ -392,7 +401,7 @@ if RUN_STAGE_5B_SMOOTH:
                     closing_radius=smooth_config.island_closing_radius,
                     min_distance=smooth_config.island_min_distance,
                     x_spacing=scan_config.resolution,
-                    y_spacing=scan_config.slice_thickness,
+                    y_spacing=y_spacing,
                 )
             else:
                 surface_pts_clean = surface_pts
@@ -601,7 +610,7 @@ if RUN_STAGE_9_METRICS:
     from deviation_analysis.deviation import compute_metrics
 
     dev_config = DeviationConfig()
-    point_area = scan_config.resolution * scan_config.slice_thickness
+    point_area = scan_config.resolution * y_spacing
 
     metrics = compute_metrics(signed_distances, point_area, dev_config)
 
