@@ -73,7 +73,7 @@ STL_OUTPUT_DIR = OUTPUT_DIR / 'scan_stls'
 # Change these to compare different scans or methods.
 # VBN (v5) is the primary method; the rest are baselines.
 METHODS = [
-    ('VBN (v9)', 'm_VBN_09_cycle_003.csv', 'm_VBN_05.csv'),
+    ('VBN (v9)', 'm_VBN_09_cycle_004.csv', 'm_VBN_05.csv'),
     ('VBN (v5)', 'm_VBN_05_cycle_001.csv', 'm_VBN_05.csv'),
     ('VBN (v2)', 'm_VBN_2_cycle_002.csv', 'm_VBN_2.csv'),
     ('Static ideal', 'm_static_ideal_cycle_001.csv', 'm_static_ideal.csv'),

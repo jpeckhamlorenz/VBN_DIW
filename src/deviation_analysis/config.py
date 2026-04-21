@@ -13,7 +13,7 @@ class ScanConfig:
     resolution: float = 0.02
     """Column spacing in mm (Keyence profiler pixel pitch)."""
 
-    scan_speed: float = 10.0
+    scan_speed: float = 15.0
     """Nominal scan speed in mm/s.
 
     Informational only — the deviation pipeline derives actual Y row spacing

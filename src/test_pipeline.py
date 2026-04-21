@@ -51,12 +51,22 @@ SHOW_PLOTS = True  # Set False to only save PNGs and skip interactive display
 # sealant_VBN_2 cycle 1,2,3 are 5mm/s, cycle 4 is 10mm/s, cycle 5 is 15mm/s
 
 # corner_VBN use cycle 7
+# corner_VBN_3 use cycle 2 (5mm/s)
+# corner_VBN_3 use cycle 6 (10mm/s)
+# corner_VBN_3 use cycle 8 (15mm/s)
 
 
-DATA_DIR = Path('demos/m')
-SCAN_CSV = DATA_DIR / 'm_VBN_05_cycle_001.csv'
-TOOLPATH_CSV = DATA_DIR / 'm_VBN_05.csv'
-STL_FILE = DATA_DIR / 'm_ideal_shifted.stl'
+# DATA_DIR = Path('demos/m')
+# SCAN_CSV = DATA_DIR / 'm_VBN_05_cycle_001.csv'
+# TOOLPATH_CSV = DATA_DIR / 'm_VBN_05.csv'
+# STL_FILE = DATA_DIR / 'm_ideal_shifted.stl'
+# OUTPUT_DIR = Path('deviation_analysis/output/test')
+# CACHE_DIR = Path('deviation_analysis/cache/test')
+
+DATA_DIR = Path('demos/corner')
+SCAN_CSV = DATA_DIR / 'corner_static_cycle_001.csv'
+TOOLPATH_CSV = DATA_DIR / 'corner_VBN.csv'
+STL_FILE = DATA_DIR / 'corner_ideal.stl'
 OUTPUT_DIR = Path('deviation_analysis/output/test')
 CACHE_DIR = Path('deviation_analysis/cache/test')
 
